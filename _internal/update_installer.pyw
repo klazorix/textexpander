@@ -40,7 +40,6 @@ def progress_smoothly(current_value, target_value, increment):
         start_button.pack(pady=10)
 
 def terminate_running_process():
-    exe_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'text_expander.exe')
     for proc in psutil.process_iter(['pid', 'name']):
         if proc.info['name'] == 'text_expander.exe':
             proc.terminate()
