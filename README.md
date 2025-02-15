@@ -11,7 +11,8 @@ For further instructions, refer to the documentation.
 | v2.0.0    | UI Window         | UI Window        | ✅               | <0.5%       | ~43MB      | ~50MB            |
 | v1.0.0    | JSON file editing*  | Console based    | ❌               | <1%       | ~13MB      | ~7MB             |
 
-_*JSON file editing requires you to install an IDE and have a fundamental understanding of JSON as a lanaguage_
+_*JSON file editing requires you to install an IDE and have a fundamental understanding of JSON as a lanaguage._  
+_*CPU Usage statistics are performed on an i5-10400F with 6 scores._
 
 ## Security Warnings on Installation
 TextExpander is packaged using **PyInstaller OneDirectory** (which is the source of a majority of the files inside the `_internal` folder).
