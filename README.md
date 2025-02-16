@@ -1,8 +1,11 @@
 # TextExpander (Source Code)
-This branch of TextExpander contains the Source Code for the latest version of TE.
+This edition of TextExpander is the raw code (rather than the PyInstaller .exe package). You can use it to verify the security of TextExpander or contribute new features to it.
 
-# Warning
-This edition is likely to run into issues and errors as the code has been designed to work as a .exe file rather than raw files, however, I believe it is still able to run and work.
+As per the selected license, TextExpander must remain open source with credit provided to the creator (klazorix) and the project's contributors.  
 
-# Reminder
-A reminder that you must maintain the same open source license if you plan to use this code, as well as provide credit to it's creator (klazorix).
+# Warning: This edition may not work
+Due to the fact that these scripts have been designed to run as a .exe directory, these scripts will not run as intended or expected.
+For the best results, move all files except `text_expander.py` into another folder called `_internal` to match the file structure of the .exe edition.
+
+# Source Code Version
+The TextExpander Source Code is currently matched to `v2.0.0` on the `stable` branch.
