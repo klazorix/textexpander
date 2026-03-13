@@ -8,7 +8,8 @@ import {
   Keyboard,
   Heart,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Settings
 } from 'lucide-react'
 
 const CURRENT_VERSION = '4.0.0'
@@ -20,7 +21,7 @@ const links = [
   { to: '/triggers',  icon: Zap,             label: 'Triggers'  },
   { to: '/variables', icon: Variable,        label: 'Variables' },
   { to: '/hotkeys',   icon: Keyboard,        label: 'Hotkeys'   },
-  { to: '/updates',   icon: RefreshCw,       label: 'Updates'   },
+  { to: '/settings',   icon: Settings,        label: 'Settings'   },
   { to: '/credits',   icon: Heart,           label: 'Credits'   },
 ]
 

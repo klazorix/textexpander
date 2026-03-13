@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "identifier": "com.text-expander.app",
+  "identifier": "textexpander",
   "productName": "Text Expander",
   "version": "4.0.0",
   "build": {

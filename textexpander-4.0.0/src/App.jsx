@@ -5,8 +5,8 @@ import Snippets from './pages/Snippets'
 import Triggers from './pages/Triggers'
 import Variables from './pages/Variables'
 import Hotkeys from './pages/Hotkeys'
+import Settings from './pages/Settings'
 import Credits from './pages/Credits'
-import Updates from './pages/Updates'
 
 export default function App() {
   return (
@@ -19,8 +19,8 @@ export default function App() {
           <Route path="/triggers" element={<Triggers />} />
           <Route path="/variables" element={<Variables />} />
           <Route path="/hotkeys" element={<Hotkeys />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/credits" element={<Credits />} />
-          <Route path="/updates" element={<Updates />} />
         </Routes>
       </main>
     </div>
