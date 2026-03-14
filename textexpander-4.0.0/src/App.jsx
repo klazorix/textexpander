@@ -6,7 +6,7 @@ import Triggers from './pages/Triggers'
 import Variables from './pages/Variables'
 import Hotkeys from './pages/Hotkeys'
 import Settings from './pages/Settings'
-import Credits from './pages/Credits'
+import About from './pages/About'
 
 export default function App() {
   return (
@@ -20,7 +20,7 @@ export default function App() {
           <Route path="/variables" element={<Variables />} />
           <Route path="/hotkeys" element={<Hotkeys />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="/credits" element={<Credits />} />
+          <Route path="/about" element={<About />} />
         </Routes>
       </main>
     </div>

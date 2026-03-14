@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.0"
+version = "1.0.0"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
@@ -25,3 +25,5 @@ tauri-plugin-global-shortcut = "2"
 uuid                         = { version = "1",      features = ["v4"] }
 rdev                         = "0.5"
 enigo                        = "0.2"
+tauri-plugin-dialog = "2"
+tauri-plugin-autostart = "2"

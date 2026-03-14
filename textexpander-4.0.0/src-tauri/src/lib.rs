@@ -73,6 +73,110 @@ fn save_config(new_config: RootConfig, state: State<'_, AppState>, app: tauri::A
     Ok(())
 }
 
+#[tauri::command]
+fn update_engine_settings(
+    enabled: bool,
+    sound_enabled: bool,
+    sound_path: Option<String>,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.enabled = enabled;
+    config.sound_enabled = sound_enabled;
+    config.sound_path = sound_path;
+    persist_config(&config_path(&app)?, &config);
+    Ok(())
+}
+
+#[tauri::command]
+fn save_sound_file(
+    file_name: String,
+    file_data: Vec<u8>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not resolve app data directory: {e}"))?;
+
+    let sounds_dir = data_dir.join("sounds");
+    std::fs::create_dir_all(&sounds_dir)
+        .map_err(|e| format!("Could not create sounds directory: {e}"))?;
+
+    let dest = sounds_dir.join(&file_name);
+    std::fs::write(&dest, &file_data)
+        .map_err(|e| format!("Could not write sound file: {e}"))?;
+
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn export_config(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let json = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&*config).map_err(|e| e.to_string())?
+    };
+
+    let file_path = app
+        .dialog()
+        .file()
+        .set_file_name("expandly-backup.json")
+        .add_filter("JSON", &["json"])
+        .blocking_save_file();
+
+    if let Some(path) = file_path {
+        std::fs::write(path.as_path().unwrap(), json)
+            .map_err(|e| format!("Failed to write file: {e}"))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn reset_config(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    *config = RootConfig::default();
+    let path = config_path(&app)?;
+    persist_config(&path, &config);
+    Ok(())
+}
+
+#[tauri::command]
+fn update_system_settings(
+    launch_at_startup: bool,
+    minimise_to_tray: bool,
+    show_in_taskbar: bool,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.launch_at_startup = launch_at_startup;
+    config.minimise_to_tray = minimise_to_tray;
+    config.show_in_taskbar = show_in_taskbar;
+    persist_config(&config_path(&app)?, &config);
+    drop(config);
+
+    // Apply autostart
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        if launch_at_startup {
+            app.autolaunch().enable().map_err(|e| format!("{e}"))?;
+        } else {
+            app.autolaunch().disable().map_err(|e| format!("{e}"))?;
+        }
+    }
+
+    // Apply taskbar visibility
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_skip_taskbar(!show_in_taskbar).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 // ── Expansions ────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -201,6 +305,11 @@ fn delete_custom_variable(id: String, state: State<'_, AppState>, app: tauri::Ap
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None
+        ))
         .setup(|app| {
             let config = load_or_create_config(&app.handle());
             let config = Arc::new(Mutex::new(config));
@@ -209,6 +318,26 @@ pub fn run() {
             engine::start(Arc::clone(&config));
 
             app.manage(AppState { config });
+
+            // Apply minimise to tray on close if enabled
+            let minimise_to_tray = {
+                let cfg = app.state::<AppState>();
+                let lock = cfg.config.lock().unwrap();
+                let val = lock.minimise_to_tray;
+                val
+            };
+
+            if minimise_to_tray {
+                let window = app.get_webview_window("main").unwrap();
+                let window_clone = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        window_clone.hide().unwrap();
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -226,6 +355,11 @@ pub fn run() {
             create_custom_variable,
             update_custom_variable,
             delete_custom_variable,
+            update_engine_settings,
+            save_sound_file,
+            export_config,
+            reset_config,
+            update_system_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running expandly");
