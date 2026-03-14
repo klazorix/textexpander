@@ -228,5 +228,5 @@ pub fn run() {
             delete_custom_variable,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Text Expander");
+        .expect("error while running expandly");
 }

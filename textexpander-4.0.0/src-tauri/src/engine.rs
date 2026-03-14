@@ -1,6 +1,6 @@
 // src-tauri/src/engine.rs
 //
-// Keystroke engine for Text Expander v4.0.0
+// Keystroke engine for expandly v4.0.0
 //
 // Responsibilities:
 //  - Listen to all keystrokes system-wide via rdev

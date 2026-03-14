@@ -49,7 +49,7 @@ function check(cmd) {
 async function main() {
   console.log()
   console.log(`${BOLD}${BLUE}╔════════════════════════════════════════╗${RESET}`)
-  console.log(`${BOLD}${BLUE}║   Text Expander v4.0.0 — Setup         ║${RESET}`)
+  console.log(`${BOLD}${BLUE}║         Expandly v4.0.0 — Setup        ║${RESET}`)
   console.log(`${BOLD}${BLUE}╚════════════════════════════════════════╝${RESET}`)
   console.log()
 

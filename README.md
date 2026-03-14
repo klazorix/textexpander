@@ -1,12 +1,12 @@
-# 🎉 TextExpander 4.0.0
-This is the official development branch for the TextExpander v4's framework, including the essential framework and features being built into v4.
+# 🎉 Expandly 4.0.0
+This is the official development branch for the Expandly 4.0 framework, including the essential framework and features being built into v4.
 New branches will be created sourced from this one in order to add new features in a secure environment.
 
 ## ⚠️ This is not a stable release.
 You should not download or use this unless you plan to contribute, as it is still in early development.
 
 # 🆕 Selecting the right version.
-To get the latest, feature-rich, and stable version of TextExpander, visit [this link](https://github.com/klazorix/textexpander/releases/latest) and download the `Source Code (zip)` file.  
+To get the latest, feature-rich, and stable version of Expandly, visit [this link](https://github.com/klazorix/Expandly/releases/latest) and download the `Source Code (zip)` file.  
 
 ## 🤔 Which version is right for you?
 | Version | Editing Expansions             | Managing Expansions                                | Viewing Expansions                  | Automatic Updates | CPU Usage    | RAM Usage    | Storage Required | Status            | Notes                                        |

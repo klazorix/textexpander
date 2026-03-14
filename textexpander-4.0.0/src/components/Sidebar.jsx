@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 
 const CURRENT_VERSION = '4.0.0'
-const GITHUB_REPO = 'klazorix/textexpander'
+const GITHUB_REPO = 'klazorix/expandly'
 
 const links = [
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
@@ -52,7 +52,7 @@ export default function Sidebar() {
   return (
     <aside className="w-56 h-screen bg-gray-900 border-r border-gray-800 flex flex-col py-6 px-3 shrink-0">
       <div className="mb-8 px-3">
-        <h1 className="text-lg font-bold text-white">Text Expander</h1>
+        <h1 className="text-lg font-bold text-white">Expandly</h1>
         <p className="text-xs text-gray-500">v4.0.0</p>
       </div>
 

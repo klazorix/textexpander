@@ -73,8 +73,8 @@ export default function Dashboard() {
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-white">Text Expander</h2>
-            <p className="text-sm text-gray-400 mt-0.5">Global expansion engine</p>
+            <h2 className="text-lg font-semibold text-white">Expandly</h2>
+            <p className="text-sm text-gray-400 mt-0.5">Hotkey & Trigger Detection</p>
           </div>
           <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${
             config?.enabled
@@ -91,7 +91,7 @@ export default function Dashboard() {
 
       {/* Version */}
       <p className="text-xs text-gray-600 text-right">
-        Text Expander v{config?.version ?? '4.0.0'}
+        expandly v{config?.version ?? '4.0.0'}
       </p>
 
     </div>
