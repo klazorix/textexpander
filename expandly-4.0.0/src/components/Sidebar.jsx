@@ -13,20 +13,21 @@ import {
 } from 'lucide-react'
 import logo from '../../src-tauri/icons/128x128.png'
 
-const CURRENT_VERSION = '4.0.0'
+const { invoke } = window.__TAURI_INTERNALS__
+
 const GITHUB_REPO = 'klazorix/expandly'
 
 const links = [
-    { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/snippets', icon: FileText, label: 'Snippets' },
-    { to: '/triggers', icon: Zap, label: 'Triggers' },
-    { to: '/variables', icon: Variable, label: 'Variables' },
-    { to: '/hotkeys', icon: Keyboard, label: 'Hotkeys' },
+    { to: '/',          icon: LayoutDashboard, label: 'Dashboard'  },
+    { to: '/snippets',  icon: FileText,        label: 'Snippets'   },
+    { to: '/triggers',  icon: Zap,             label: 'Triggers'   },
+    { to: '/variables', icon: Variable,        label: 'Variables'  },
+    { to: '/hotkeys',   icon: Keyboard,        label: 'Hotkeys'    },
 ]
 
 const bottomLinks = [
-    { to: '/settings', icon: Settings, label: 'Settings' },
-    { to: '/about', icon: Heart, label: 'About Expandly' },
+    { to: '/settings', icon: Settings, label: 'Settings'       },
+    { to: '/about',    icon: Heart,    label: 'About Expandly' },
 ]
 
 function newerVersion(latest, current) {
@@ -40,17 +41,21 @@ function newerVersion(latest, current) {
 }
 
 export default function Sidebar() {
+    const [appVersion, setAppVersion] = useState('...')
     const [hasUpdate, setHasUpdate] = useState(false)
 
     useEffect(() => {
-        fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`)
-            .then(r => r.json())
-            .then(data => {
-                if (data.tag_name && newerVersion(data.tag_name, CURRENT_VERSION)) {
-                    setHasUpdate(true)
-                }
-            })
-            .catch(() => { })
+        invoke('get_app_version').then(v => {
+            setAppVersion(v)
+            fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.tag_name && newerVersion(data.tag_name, v)) {
+                        setHasUpdate(true)
+                    }
+                })
+                .catch(() => {})
+        })
     }, [])
 
     return (
@@ -59,7 +64,7 @@ export default function Sidebar() {
                 <img src={logo} alt="Expandly" className="w-8 h-8 rounded-lg shrink-0" />
                 <div>
                     <h1 className="text-sm font-bold text-white">Expandly</h1>
-                    <p className="text-xs text-gray-500">v4.0.0</p>
+                    <p className="text-xs text-gray-500">v{appVersion}</p>
                 </div>
             </div>
 

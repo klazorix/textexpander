@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "identifier": "expandly",
+  "identifier": "Expandly",
   "productName": "Expandly",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",

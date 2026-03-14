@@ -10,6 +10,11 @@ export default function Dashboard() {
     invoke('get_config').then(setConfig)
   }, [])
 
+  async function getVersion() {
+      const v = await invoke('get_app_version')
+      return v
+  }
+
   const snippetCount = config ? Object.keys(config.expansions).length : 0
   const triggerCount = config ? config.triggers.length : 0
   const totalExpansions = config?.stats.total_expansions ?? 0
@@ -88,11 +93,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      {/* Version */}
-      <p className="text-xs text-gray-600 text-right">
-        Expandly Engine {config?.version}
-      </p>
 
     </div>
   )

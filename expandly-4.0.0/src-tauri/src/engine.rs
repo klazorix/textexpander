@@ -1,12 +1,6 @@
 // src-tauri/src/engine.rs
 //
-// Keystroke engine for expandly v4.0.0
-//
-// Responsibilities:
-//  - Listen to all keystrokes system-wide via rdev
-//  - Maintain a rolling buffer of recently typed characters
-//  - When buffer tail matches a trigger key, delete it and inject expansion
-//  - Resolve variables ({date}, {time}, {clipboard}, custom vars) at expansion time
+// Keystroke engine for Expandly v4.0.0
 
 use crate::models::RootConfig;
 
@@ -17,30 +11,22 @@ use std::{
 };
 
 use enigo::{
-    Direction::{Click, Press, Release},
+    Direction::Click,
     Enigo, Key, Keyboard, Settings,
 };
 
 use rdev::{listen, Event, EventType, Key as RKey};
 
-// Maximum characters to keep in the rolling buffer
 const BUFFER_SIZE: usize = 64;
-
-// Delay before injecting text after a hotkey fires (ms)
 const HOTKEY_INJECT_DELAY_MS: u64 = 80;
 
 // ── Variable resolution ───────────────────────────────────────────────────
 
 fn resolve_variables(text: &str, config: &RootConfig) -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    // Get current local datetime components using chrono-free approach
-    // We use the time crate via std primitives
     let now = chrono_now();
 
     let mut result = text.to_string();
 
-    // Built-in variables
     result = result.replace("{date}",     &now.date);
     result = result.replace("{time}",     &now.time);
     result = result.replace("{datetime}", &format!("{} {}", now.date, now.time));
@@ -48,13 +34,11 @@ fn resolve_variables(text: &str, config: &RootConfig) -> String {
     result = result.replace("{month}",    &now.month);
     result = result.replace("{year}",     &now.year);
 
-    // Clipboard
     if result.contains("{clipboard}") {
         let clipboard_text = get_clipboard().unwrap_or_default();
         result = result.replace("{clipboard}", &clipboard_text);
     }
 
-    // Custom variables
     for var in &config.custom_variables {
         let token = format!("{{{}}}", var.name);
         result = result.replace(&token, &var.value);
@@ -72,8 +56,6 @@ struct DateTime {
 }
 
 fn chrono_now() -> DateTime {
-    // Use the `time` approach via std — no extra crate needed
-    // We shell out to a simple calculation using SystemTime
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let secs = SystemTime::now()
@@ -81,17 +63,14 @@ fn chrono_now() -> DateTime {
         .unwrap_or_default()
         .as_secs();
 
-    // Simple epoch → date conversion (UTC, good enough for text expansion)
     let days_since_epoch = secs / 86400;
     let secs_today = secs % 86400;
-
     let hours   = secs_today / 3600;
     let minutes = (secs_today % 3600) / 60;
 
-    // Zeller's-style date calculation from epoch days
     let (y, m, d) = days_from_epoch(days_since_epoch as i64);
 
-    let day_of_week = ((days_since_epoch + 3) % 7) as usize; // 0 = Sunday
+    let day_of_week = ((days_since_epoch + 3) % 7) as usize;
     let days   = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
     let months = ["January","February","March","April","May","June",
                   "July","August","September","October","November","December"];
@@ -120,7 +99,6 @@ fn days_from_epoch(z: i64) -> (i64, i64, i64) {
 }
 
 fn get_clipboard() -> Option<String> {
-    // Use enigo's clipboard reading via a temporary instance
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
@@ -138,7 +116,6 @@ fn get_clipboard() -> Option<String> {
 
 // ── Key conversion ────────────────────────────────────────────────────────
 
-/// Convert an rdev Key to a printable character if possible
 fn rkey_to_char(key: &RKey) -> Option<char> {
     match key {
         RKey::KeyA => Some('a'), RKey::KeyB => Some('b'), RKey::KeyC => Some('c'),
@@ -165,7 +142,6 @@ fn rkey_to_char(key: &RKey) -> Option<char> {
     }
 }
 
-/// Convert rdev modifier key names to our stored format
 fn rkey_to_modifier_str(key: &RKey) -> Option<&'static str> {
     match key {
         RKey::ControlLeft | RKey::ControlRight => Some("Control"),
@@ -177,26 +153,25 @@ fn rkey_to_modifier_str(key: &RKey) -> Option<&'static str> {
 }
 
 fn rkey_to_name(key: &RKey) -> Option<String> {
-    // Named keys that can appear in hotkey combos
     let s = match key {
         RKey::F1  => "F1",  RKey::F2  => "F2",  RKey::F3  => "F3",
         RKey::F4  => "F4",  RKey::F5  => "F5",  RKey::F6  => "F6",
         RKey::F7  => "F7",  RKey::F8  => "F8",  RKey::F9  => "F9",
         RKey::F10 => "F10", RKey::F11 => "F11", RKey::F12 => "F12",
-        RKey::Tab         => "Tab",
-        RKey::Escape      => "Escape",
-        RKey::Return      => "Return",
-        RKey::Space       => "Space",
-        RKey::UpArrow     => "Up",
-        RKey::DownArrow   => "Down",
-        RKey::LeftArrow   => "Left",
-        RKey::RightArrow  => "Right",
-        RKey::Home        => "Home",
-        RKey::End         => "End",
-        RKey::PageUp      => "PageUp",
-        RKey::PageDown    => "PageDown",
-        RKey::Insert      => "Insert",
-        RKey::Delete      => "Delete",
+        RKey::Tab        => "Tab",
+        RKey::Escape     => "Escape",
+        RKey::Return     => "Return",
+        RKey::Space      => "Space",
+        RKey::UpArrow    => "Up",
+        RKey::DownArrow  => "Down",
+        RKey::LeftArrow  => "Left",
+        RKey::RightArrow => "Right",
+        RKey::Home       => "Home",
+        RKey::End        => "End",
+        RKey::PageUp     => "PageUp",
+        RKey::PageDown   => "PageDown",
+        RKey::Insert     => "Insert",
+        RKey::Delete     => "Delete",
         _ => return rkey_to_char(key).map(|c| c.to_uppercase().to_string()),
     };
     Some(s.to_string())
@@ -209,7 +184,6 @@ fn inject_text(text: &str) {
         Ok(e) => e,
         Err(e) => { eprintln!("[engine] Failed to create Enigo: {e}"); return; }
     };
-
     if let Err(e) = enigo.text(text) {
         eprintln!("[engine] Failed to inject text: {e}");
     }
@@ -220,7 +194,6 @@ fn delete_chars(n: usize) {
         Ok(e) => e,
         Err(e) => { eprintln!("[engine] Failed to create Enigo: {e}"); return; }
     };
-
     for _ in 0..n {
         let _ = enigo.key(Key::Backspace, Click);
     }
@@ -233,9 +206,9 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
         let buffer: Arc<Mutex<Vec<char>>> = Arc::new(Mutex::new(Vec::new()));
         let held_keys: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
-        let buffer_clone     = Arc::clone(&buffer);
-        let held_clone       = Arc::clone(&held_keys);
-        let config_clone     = Arc::clone(&config);
+        let buffer_clone = Arc::clone(&buffer);
+        let held_clone   = Arc::clone(&held_keys);
+        let config_clone = Arc::clone(&config);
 
         listen(move |event: Event| {
             match event.event_type {
@@ -243,7 +216,7 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
                 // ── Key pressed ───────────────────────────────────────────
                 EventType::KeyPress(key) => {
 
-                    // Track modifier keys for hotkey detection
+                    // Track modifiers
                     if let Some(modifier) = rkey_to_modifier_str(&key) {
                         let mut held = held_clone.lock().unwrap();
                         if !held.contains(&modifier.to_string()) {
@@ -260,12 +233,10 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
                         let held = held_clone.lock().unwrap();
                         if !held.is_empty() {
                             if let Some(key_name) = rkey_to_name(&key) {
-                                // Build the current combo string
                                 let mut parts = held.clone();
                                 parts.push(key_name);
                                 let combo = parts.join("+");
 
-                                // Check against registered hotkeys
                                 for hotkey in &cfg.hotkeys {
                                     if hotkey.keys.eq_ignore_ascii_case(&combo) {
                                         if let Some(expansion) = cfg.expansions.get(&hotkey.expansion_id) {
@@ -279,7 +250,7 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
                                     }
                                 }
                             }
-                            return; // modifier held but no hotkey matched — ignore
+                            return;
                         }
                     }
 
@@ -297,7 +268,6 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
                                         buf.remove(0);
                                     }
                                 } else {
-                                    // Unknown key — clear buffer to avoid false matches
                                     buf.clear();
                                 }
                             }
@@ -305,10 +275,10 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
 
                         // ── Trigger check ─────────────────────────────────
                         let buf_str: String = buf.iter().collect();
+                        let mut matched: Option<(String, usize)> = None;
 
                         for trigger in &cfg.triggers {
                             if buf_str.ends_with(&trigger.key) {
-                                // Word boundary check
                                 if trigger.word_boundary {
                                     let before = buf_str.len() - trigger.key.len();
                                     if before > 0 {
@@ -322,17 +292,56 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
                                 if let Some(expansion) = cfg.expansions.get(&trigger.expansion_id) {
                                     let text = resolve_variables(&expansion.text, &cfg);
                                     let delete_count = trigger.key.len();
-                                    buf.clear();
-                                    drop(buf);
-                                    drop(cfg);
-
-                                    thread::sleep(Duration::from_millis(30));
-                                    delete_chars(delete_count);
-                                    thread::sleep(Duration::from_millis(30));
-                                    inject_text(&text);
-                                    return;
+                                    matched = Some((text, delete_count));
+                                    break;
                                 }
                             }
+                        }
+
+                        if matched.is_some() {
+                            buf.clear();
+                        }
+
+                        drop(buf);
+                        drop(cfg);
+
+                        if let Some((text, delete_count)) = matched {
+                            // Read sound settings before sleeping
+                            let (sound_enabled, sound_path) = {
+                                let cfg = config_clone.lock().unwrap();
+                                (cfg.sound_enabled, cfg.sound_path.clone())
+                            };
+
+                            thread::sleep(Duration::from_millis(320));
+                            delete_chars(delete_count);
+                            inject_text(&text);
+
+                            if sound_enabled {
+                                if let Some(path) = sound_path {
+                                    thread::spawn(move || {
+                                        use rodio::{Decoder, OutputStream, Sink};
+                                        use std::fs::File;
+                                        use std::io::BufReader;
+
+                                        let result = OutputStream::try_default();
+                                        let Ok((_stream, stream_handle)) = result else { return };
+                                        let Ok(sink) = Sink::try_new(&stream_handle) else { return };
+                                        let Ok(file) = File::open(&path) else { return };
+                                        let Ok(source) = Decoder::new(BufReader::new(file)) else { return };
+
+                                        sink.append(source);
+                                        let start = std::time::Instant::now();
+                                        while !sink.empty() {
+                                            if start.elapsed().as_secs() >= 10 {
+                                                sink.stop();
+                                                break;
+                                            }
+                                            thread::sleep(Duration::from_millis(100));
+                                        }
+                                    });
+                                }
+                            }
+                            return;
                         }
                     }
                 }

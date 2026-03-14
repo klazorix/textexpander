@@ -52,9 +52,6 @@ pub struct RootConfig {
     #[serde(default)]
     pub sound_path: Option<String>,
 
-    #[serde(default = "default_show_in_taskbar")]
-    pub show_in_taskbar: bool,
-
     #[serde(default)]
     pub launch_at_startup: bool,
 
@@ -78,13 +75,12 @@ pub struct RootConfig {
 
     #[serde(default)]
     pub stats: GlobalStats,
+
+    #[serde(default)]
+    pub launch_minimised: bool,
 }
 
 fn default_enabled() -> bool {
-    true
-}
-
-fn default_show_in_taskbar() -> bool {
     true
 }
 
@@ -94,19 +90,63 @@ fn default_theme() -> String {
 
 impl Default for RootConfig {
     fn default() -> Self {
+        let exp1_id = uuid::Uuid::new_v4().to_string();
+        let exp2_id = uuid::Uuid::new_v4().to_string();
+        let trigger1_id = uuid::Uuid::new_v4().to_string();
+        let trigger2_id = uuid::Uuid::new_v4().to_string();
+        let variable_id = uuid::Uuid::new_v4().to_string();
+
+        let mut expansions = HashMap::new();
+        expansions.insert(exp1_id.clone(), Expansion {
+            id: exp1_id.clone(),
+            name: "Welcome to Expandly".to_string(),
+            text: "Welcome to Expandly {version}! This is your first snippet. Try editing me or creating your own!".to_string(),
+        });
+        expansions.insert(exp2_id.clone(), Expansion {
+            id: exp2_id.clone(),
+            name: "Current Date & Time".to_string(),
+            text: "The date today is {date} and the time is {time}.".to_string(),
+        });
+
         Self {
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: String::new(),
             enabled: true,
+
             sound_enabled: false,
             sound_path: None,
-            show_in_taskbar: true,
+
             launch_at_startup: false,
+            launch_minimised: false,
             minimise_to_tray: false,
+
             theme: "starry-blue".to_string(),
-            expansions: HashMap::new(),
-            triggers: Vec::new(),
-            hotkeys: Vec::new(),
-            custom_variables: Vec::new(),
+
+            expansions,
+            
+            triggers: vec![
+                Trigger {
+                    id: trigger1_id,
+                    key: "/hello".to_string(),
+                    expansion_id: exp1_id,
+                    word_boundary: true,
+                },
+                Trigger {
+                    id: trigger2_id,
+                    key: "/time".to_string(),
+                    expansion_id: exp2_id,
+                    word_boundary: true,
+                },
+            ],
+            hotkeys: vec![],
+
+            custom_variables: vec![
+                CustomVariable {
+                    id: variable_id,
+                    name: "version".to_string(),
+                    value: env!("CARGO_PKG_VERSION").to_string(),
+                }
+            ],
+
             stats: GlobalStats::default(),
         }
     }

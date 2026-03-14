@@ -3,7 +3,6 @@ import { Settings as SettingsIcon, Palette, Database, RefreshCw, Upload, X, Volu
 
 const { invoke } = window.__TAURI_INTERNALS__
 
-const CURRENT_VERSION = '4.0.0'
 const GITHUB_REPO = 'klazorix/textexpander'
 
 const tabs = [
@@ -75,8 +74,10 @@ function EngineTab() {
   const [soundPath, setSoundPath] = useState(null)
   const [soundName, setSoundName] = useState(null)
   const [launchAtStartup, setLaunchAtStartup] = useState(false)
+  const [launchMinimised, setLaunchMinimised] = useState(false)
   const [minimiseToTray, setMinimiseToTray] = useState(false)
   const [showInTaskbar, setShowInTaskbar] = useState(false)
+  const [appVersion, setAppVersion] = useState("")
   const fileRef = useRef()
 
   useEffect(() => {
@@ -88,7 +89,15 @@ function EngineTab() {
       if (c.sound_path) setSoundName(c.sound_path.split(/[\\/]/).pop())
       setLaunchAtStartup(c.launch_at_startup ?? false)
       setMinimiseToTray(c.minimise_to_tray ?? false)
-      setShowInTaskbar(c.show_in_taskbar ?? true)
+      setLaunchMinimised(c.launch_minimised ?? false)
+    })
+  }, [])
+
+  useEffect(() => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    invoke('get_app_version').then(v => {
+      setAppVersion(v)
+      check(v)
     })
   }, [])
 
@@ -102,9 +111,9 @@ function EngineTab() {
 
   const saveSystem = async (overrides = {}) => {
     await invoke('update_system_settings', {
-      launchAtStartup: overrides.launchAtStartup ?? launchAtStartup,
-      minimiseToTray: overrides.minimiseToTray ?? minimiseToTray,
-      showInTaskbar: overrides.showInTaskbar ?? showInTaskbar,
+      launchAtStartup:  overrides.launchAtStartup  ?? launchAtStartup,
+      launchMinimised:  overrides.launchMinimised  ?? launchMinimised,
+      minimiseToTray:   overrides.minimiseToTray   ?? minimiseToTray,
     })
   }
 
@@ -112,7 +121,7 @@ function EngineTab() {
   const handleToggleSound = (val) => { setSoundEnabled(val); saveEngine({ soundEnabled: val }) }
   const handleStartup = (val) => { setLaunchAtStartup(val); saveSystem({ launchAtStartup: val }) }
   const handleTray = (val) => { setMinimiseToTray(val); saveSystem({ minimiseToTray: val }) }
-  const handleTaskbar = (val) => { setShowInTaskbar(val); saveSystem({ showInTaskbar: val }) }
+  const handleLaunchMinimised = (val) => { setLaunchMinimised(val); saveSystem({ launchMinimised: val }) }
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0]
@@ -147,11 +156,9 @@ function EngineTab() {
         >
           <Toggle value={enabled} onChange={handleToggleEngine} />
         </SettingRow>
-        {config && (
-          <div className="py-3">
-            <p className="text-xs text-gray-600">Expandly Engine {config.version}</p>
-          </div>
-        )}
+        <div className="py-3">
+          <p className="text-xs text-gray-600">Expandly Engine {appVersion}</p>
+        </div>
       </Card>
 
       <SectionLabel>Expansion Sound</SectionLabel>
@@ -165,7 +172,7 @@ function EngineTab() {
         {soundEnabled && (
           <SettingRow
             label="Sound File"
-            description="Upload a .mp3, .wav or .ogg file"
+            description="Upload a .mp3 or .wav to play on expansion. Maximum length of 10 seconds."
           >
             <div className="flex items-center gap-2">
               {soundName ? (
@@ -196,7 +203,7 @@ function EngineTab() {
               <input
                 ref={fileRef}
                 type="file"
-                accept=".mp3,.wav,.ogg"
+                accept=".mp3,.wav"
                 className="hidden"
                 onChange={handleFileUpload}
               />
@@ -214,16 +221,16 @@ function EngineTab() {
           <Toggle value={launchAtStartup} onChange={handleStartup} />
         </SettingRow>
         <SettingRow
+          label="Launch Minimised"
+          description="Start Expandly minimised to the system tray"
+        >
+          <Toggle value={launchMinimised} onChange={handleLaunchMinimised} />
+        </SettingRow>
+        <SettingRow
           label="Minimise to Tray on Close"
           description="Keep Expandly running in the system tray when the window is closed"
         >
           <Toggle value={minimiseToTray} onChange={handleTray} />
-        </SettingRow>
-        <SettingRow
-          label="Show in Taskbar"
-          description="Show Expandly in the taskbar when running"
-        >
-          <Toggle value={showInTaskbar} onChange={handleTaskbar} />
         </SettingRow>
       </Card>
     </div>
@@ -313,7 +320,7 @@ function DataTab() {
             onClick={handleExport}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white text-sm transition-colors"
           >
-            <Download size={14} />
+            <Upload size={14} />
             Export
           </button>
         </SettingRow>
@@ -327,7 +334,7 @@ function DataTab() {
             disabled={importing}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white text-sm transition-colors disabled:opacity-40"
           >
-            <Upload size={14} />
+            <Download size={14} />
             {importing ? 'Importing...' : 'Import'}
           </button>
           <input
@@ -385,8 +392,9 @@ function UpdatesTab() {
   const [status, setStatus] = useState('idle')
   const [release, setRelease] = useState(null)
   const [checkedAt, setCheckedAt] = useState(null)
+  const [appVersion, setAppVersion] = useState('')
 
-  const check = async () => {
+  const check = async (version) => {
     setStatus('checking')
     try {
       const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`)
@@ -394,42 +402,38 @@ function UpdatesTab() {
       const data = await res.json()
       setRelease(data)
       setCheckedAt(new Date())
-      setStatus(newerVersion(data.tag_name, CURRENT_VERSION) ? 'available' : 'uptodate')
+      setStatus(newerVersion(data.tag_name, version) ? 'available' : 'uptodate')
     } catch {
       setStatus('error')
     }
   }
 
-  useEffect(() => { check() }, [])
+  useEffect(() => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    invoke('get_app_version').then(v => {
+      setAppVersion(v)
+      check(v)
+    })
+  }, [])
 
   const assets = release?.assets ?? []
-
   const openUrl = (url) => window.open(url, '_blank')
 
   return (
     <div>
-      <div className={`rounded-2xl border p-6 mb-4 transition-colors ${status === 'available' ? 'bg-orange-500/5 border-orange-500/30'
+      <div className={`rounded-2xl border p-6 mb-4 transition-colors ${
+        status === 'available' ? 'bg-orange-500/5 border-orange-500/30'
         : status === 'uptodate' ? 'bg-emerald-500/5 border-emerald-500/30'
-          : status === 'error' ? 'bg-red-500/5 border-red-500/30'
-            : 'bg-gray-900 border-gray-800'
-        }`}>
+        : status === 'error' ? 'bg-red-500/5 border-red-500/30'
+        : 'bg-gray-900 border-gray-800'
+      }`}>
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            {status === 'checking' && (
-              <RefreshCw size={24} className="text-blue-400 animate-spin shrink-0" />
-            )}
-            {status === 'uptodate' && (
-              <CheckCircle size={24} className="text-emerald-400 shrink-0" />
-            )}
-            {status === 'available' && (
-              <AlertCircle size={24} className="text-orange-400 shrink-0" />
-            )}
-            {status === 'error' && (
-              <AlertCircle size={24} className="text-red-400 shrink-0" />
-            )}
-            {status === 'idle' && (
-              <RefreshCw size={24} className="text-gray-600 shrink-0" />
-            )}
+            {status === 'checking' && <RefreshCw size={24} className="text-blue-400 animate-spin shrink-0" />}
+            {status === 'uptodate' && <CheckCircle size={24} className="text-emerald-400 shrink-0" />}
+            {status === 'available' && <AlertCircle size={24} className="text-orange-400 shrink-0" />}
+            {status === 'error' && <AlertCircle size={24} className="text-red-400 shrink-0" />}
+            {status === 'idle' && <RefreshCw size={24} className="text-gray-600 shrink-0" />}
             <div>
               {status === 'checking' && (
                 <>
@@ -440,7 +444,7 @@ function UpdatesTab() {
               {status === 'uptodate' && (
                 <>
                   <p className="text-white font-semibold">You are up to date</p>
-                  <p className="text-gray-400 text-sm mt-0.5">Expandly {CURRENT_VERSION} is the latest version</p>
+                  <p className="text-gray-400 text-sm mt-0.5">Expandly {appVersion} is the latest version</p>
                 </>
               )}
               {status === 'available' && (
@@ -458,7 +462,7 @@ function UpdatesTab() {
             </div>
           </div>
           <button
-            onClick={check}
+            onClick={() => check(appVersion)}
             disabled={status === 'checking'}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium transition-colors disabled:opacity-40 shrink-0"
           >
@@ -477,36 +481,23 @@ function UpdatesTab() {
         <div>
           {release.body && (
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-4">
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">
-                What's New
-              </h2>
-              <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
-                {release.body}
-              </div>
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">What's New</h2>
+              <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{release.body}</div>
             </div>
           )}
-
           {assets.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-4">
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">
-                Downloads
-              </h2>
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">Downloads</h2>
               <div className="flex flex-col gap-2">
                 {assets.map((asset, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between px-4 py-3 bg-gray-800 rounded-xl"
-                  >
+                  <div key={i} className="flex items-center justify-between px-4 py-3 bg-gray-800 rounded-xl">
                     <div className="flex items-center gap-3 min-w-0">
                       <Download size={15} className="text-gray-400 shrink-0" />
                       <span className="text-white text-sm truncate">{asset.name}</span>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <span className="text-gray-500 text-xs">{formatBytes(asset.size)}</span>
-                      <button
-                        onClick={() => openUrl(asset.browser_download_url)}
-                        className="text-blue-400 hover:text-blue-300 transition-colors"
-                      >
+                      <button onClick={() => openUrl(asset.browser_download_url)} className="text-blue-400 hover:text-blue-300 transition-colors">
                         <ExternalLink size={13} />
                       </button>
                     </div>
@@ -515,7 +506,6 @@ function UpdatesTab() {
               </div>
             </div>
           )}
-
           <button
             onClick={() => openUrl(release.html_url)}
             className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl bg-gray-900 border border-gray-800 hover:border-gray-700 text-gray-400 hover:text-white text-sm transition-colors"
@@ -528,7 +518,6 @@ function UpdatesTab() {
     </div>
   )
 }
-
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('engine')
 

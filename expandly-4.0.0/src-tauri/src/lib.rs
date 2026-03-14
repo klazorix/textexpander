@@ -53,8 +53,19 @@ fn load_or_create_config(app: &tauri::AppHandle) -> RootConfig {
             Err(e) => eprintln!("[text-expander] Could not read config: {e}"),
         }
     }
-    let default_config = RootConfig::default();
+    
+    let mut default_config = RootConfig::default();
+    default_config.version = app.package_info().version.to_string();
+
+    // Also update the version custom variable if it exists
+    for var in &mut default_config.custom_variables {
+        if var.name == "version" {
+            var.value = app.package_info().version.to_string();
+        }
+    }
+
     persist_config(&path, &default_config);
+    println!("[expandly] Default config written to {:?}", path);
     default_config
 }
 
@@ -147,19 +158,18 @@ fn reset_config(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(),
 #[tauri::command]
 fn update_system_settings(
     launch_at_startup: bool,
+    launch_minimised: bool,
     minimise_to_tray: bool,
-    show_in_taskbar: bool,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.launch_at_startup = launch_at_startup;
+    config.launch_minimised = launch_minimised;
     config.minimise_to_tray = minimise_to_tray;
-    config.show_in_taskbar = show_in_taskbar;
     persist_config(&config_path(&app)?, &config);
     drop(config);
 
-    // Apply autostart
     {
         use tauri_plugin_autostart::ManagerExt;
         if launch_at_startup {
@@ -167,11 +177,6 @@ fn update_system_settings(
         } else {
             app.autolaunch().disable().map_err(|e| format!("{e}"))?;
         }
-    }
-
-    // Apply taskbar visibility
-    if let Some(window) = app.get_webview_window("main") {
-        window.set_skip_taskbar(!show_in_taskbar).map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -302,6 +307,11 @@ fn delete_custom_variable(id: String, state: State<'_, AppState>, app: tauri::Ap
 
 // ── Run ───────────────────────────────────────────────────────────────────
 
+#[tauri::command]
+fn get_app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -314,28 +324,81 @@ pub fn run() {
             let config = load_or_create_config(&app.handle());
             let config = Arc::new(Mutex::new(config));
 
-            // Start the keystroke engine on a background thread
             engine::start(Arc::clone(&config));
+
+            // Read startup settings before managing state
+            let (minimise_to_tray, launch_minimised) = {
+                let cfg = config.lock().unwrap();
+                let a = cfg.minimise_to_tray;
+                let b = cfg.launch_minimised;
+                (a, b)
+            };
 
             app.manage(AppState { config });
 
-            // Apply minimise to tray on close if enabled
-            let minimise_to_tray = {
-                let cfg = app.state::<AppState>();
-                let lock = cfg.config.lock().unwrap();
-                let val = lock.minimise_to_tray;
-                val
-            };
+            use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
+            use tauri::menu::{Menu, MenuItem};
 
-            if minimise_to_tray {
-                let window = app.get_webview_window("main").unwrap();
-                let window_clone = window.clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        window_clone.hide().unwrap();
+            let quit = MenuItem::with_id(app, "quit", "Quit Expandly", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+
+            let _tray = TrayIconBuilder::with_id("expandly-tray")
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("Expandly")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        _ => {}
                     }
-                });
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
+
+            // Apply taskbar setting
+            if let Some(window) = app.get_webview_window("main") {
+
+                // Launch minimised
+                if launch_minimised {
+                    let _ = window.hide();
+                }
+
+                // Minimise to tray on close
+                if minimise_to_tray {
+                    let window_clone = window.clone();
+                    window.on_window_event(move |event| {
+                        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                            api.prevent_close();
+                            let _ = window_clone.hide();
+                        }
+                    });
+                }
             }
 
             Ok(())
@@ -356,10 +419,11 @@ pub fn run() {
             update_custom_variable,
             delete_custom_variable,
             update_engine_settings,
+            update_system_settings,
             save_sound_file,
             export_config,
             reset_config,
-            update_system_settings,
+            get_app_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running expandly");
