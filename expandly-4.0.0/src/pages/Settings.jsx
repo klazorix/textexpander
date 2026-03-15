@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Settings as SettingsIcon, Palette, Database, RefreshCw, Upload, X, Volume2, CheckCircle, AlertCircle, Download, ExternalLink, Trash2 } from 'lucide-react'
-
 const { invoke } = window.__TAURI_INTERNALS__
 
 const GITHUB_REPO = 'klazorix/textexpander'
@@ -97,7 +98,7 @@ function EngineTab() {
     const { invoke } = window.__TAURI_INTERNALS__
     invoke('get_app_version').then(v => {
       setAppVersion(v)
-      check(v)
+      checkForUpdates(v)
     })
   }, [])
 
@@ -111,9 +112,9 @@ function EngineTab() {
 
   const saveSystem = async (overrides = {}) => {
     await invoke('update_system_settings', {
-      launchAtStartup:  overrides.launchAtStartup  ?? launchAtStartup,
-      launchMinimised:  overrides.launchMinimised  ?? launchMinimised,
-      minimiseToTray:   overrides.minimiseToTray   ?? minimiseToTray,
+      launchAtStartup: overrides.launchAtStartup ?? launchAtStartup,
+      launchMinimised: overrides.launchMinimised ?? launchMinimised,
+      minimiseToTray: overrides.minimiseToTray ?? minimiseToTray,
     })
   }
 
@@ -247,10 +248,36 @@ function AppearanceTab() {
   )
 }
 
+function ConfirmModal({ message, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        <p className="text-white text-sm leading-relaxed mb-6">{message}</p>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 rounded-lg text-sm bg-red-600 hover:bg-red-500 text-white font-medium transition-colors"
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function DataTab() {
   const [importing, setImporting] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [message, setMessage] = useState(null)
+  const [trackStats, setTrackStats] = useState(true)
+  const [confirmModal, setConfirmModal] = useState(null)
   const fileRef = useRef()
 
   const showMessage = (text, color = 'green') => {
@@ -258,7 +285,33 @@ function DataTab() {
     setTimeout(() => setMessage(null), 6000)
   }
 
+  useEffect(() => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    invoke('get_config').then(c => setTrackStats(c.track_stats ?? true))
+  }, [])
+
+  const handleTrackStats = (val) => {
+    if (!val) {
+      setConfirmModal({
+        message: 'Disabling statistics tracking will permanently clear all recorded statistics. This cannot be undone. Are you sure?',
+        onConfirm: async () => {
+          const { invoke } = window.__TAURI_INTERNALS__
+          setConfirmModal(null)
+          await invoke('reset_stats')
+          setTrackStats(false)
+          await invoke('update_track_stats', { trackStats: false })
+        },
+        onCancel: () => setConfirmModal(null),
+      })
+      return
+    }
+    const { invoke } = window.__TAURI_INTERNALS__
+    setTrackStats(val)
+    invoke('update_track_stats', { trackStats: val })
+  }
+
   const handleExport = async () => {
+    const { invoke } = window.__TAURI_INTERNALS__
     try {
       await invoke('export_config')
       showMessage('Config exported successfully')
@@ -268,6 +321,7 @@ function DataTab() {
   }
 
   const handleImport = async (e) => {
+    const { invoke } = window.__TAURI_INTERNALS__
     const file = e.target.files[0]
     if (!file) return
     setImporting(true)
@@ -284,16 +338,23 @@ function DataTab() {
   }
 
   const handleReset = async () => {
-    if (!window.confirm('This will delete all your snippets, triggers, hotkeys and variables. Are you sure?')) return
-    setResetting(true)
-    try {
-      await invoke('reset_config')
-      showMessage('All data reset to default')
-    } catch {
-      showMessage('Reset failed', 'red')
-    } finally {
-      setResetting(false)
-    }
+    setConfirmModal({
+      message: 'This will permanently delete all your snippets, triggers, hotkeys and variables. This cannot be undone. Are you sure?',
+      onConfirm: async () => {
+        const { invoke } = window.__TAURI_INTERNALS__
+        setConfirmModal(null)
+        setResetting(true)
+        try {
+          await invoke('reset_config')
+          showMessage('All data reset to default')
+        } catch {
+          showMessage('Reset failed', 'red')
+        } finally {
+          setResetting(false)
+        }
+      },
+      onCancel: () => setConfirmModal(null),
+    })
   }
 
   return (
@@ -309,6 +370,16 @@ function DataTab() {
           </p>
         </div>
       )}
+
+      <SectionLabel>Statistics</SectionLabel>
+      <Card>
+        <SettingRow
+          label="Track Statistics"
+          description="Record expansion counts and characters saved over time"
+        >
+          <Toggle value={trackStats} onChange={handleTrackStats} />
+        </SettingRow>
+      </Card>
 
       <SectionLabel>Backup</SectionLabel>
       <Card>
@@ -363,17 +434,34 @@ function DataTab() {
           </button>
         </SettingRow>
       </div>
+      {confirmModal && (
+        <ConfirmModal
+          message={confirmModal.message}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={confirmModal.onCancel}
+        />
+      )}
     </div>
   )
 }
 
 function newerVersion(latest, current) {
-  const a = latest.replace(/^v/, '').split('.').map(Number)
-  const b = current.replace(/^v/, '').split('.').map(Number)
-  for (let i = 0; i < 3; i++) {
-    if ((a[i] ?? 0) > (b[i] ?? 0)) return true
-    if ((a[i] ?? 0) < (b[i] ?? 0)) return false
+  const clean = v => v.replace(/^v/, '')
+  const parse = v => {
+    const str = clean(v)
+    const match = str.match(/^(\d+\.\d+\.\d+)b(\d+)$/)
+    if (match) return { parts: match[1].split('.').map(Number), pre: parseInt(match[2]) }
+    return { parts: str.split('.').map(Number), pre: null }
   }
+  const a = parse(latest)
+  const b = parse(current)
+  for (let i = 0; i < 3; i++) {
+    if ((a.parts[i] ?? 0) > (b.parts[i] ?? 0)) return true
+    if ((a.parts[i] ?? 0) < (b.parts[i] ?? 0)) return false
+  }
+  if (a.pre === null && b.pre !== null) return true
+  if (a.pre !== null && b.pre === null) return false
+  if (a.pre !== null && b.pre !== null) return a.pre > b.pre
   return false
 }
 
@@ -388,45 +476,161 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function ChangelogModal({ release, onClose }) {
+  const openUrl = (url) => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    invoke('open_url', { url }).catch(() => { })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-6">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 shrink-0">
+          <div>
+            <h2 className="text-white font-semibold">{release.tag_name}</h2>
+            <p className="text-gray-500 text-xs mt-0.5">
+              Released {formatDate(release.published_at)}
+              {release.prerelease && (
+                <span className="ml-2 bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full">Pre-release</span>
+              )}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-4 flex-1">
+          {release.body ? (
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: ({ children }) => <p className="text-white font-bold text-base mb-2 mt-4">{children}</p>,
+                h2: ({ children }) => <p className="text-white font-bold text-sm mb-2 mt-4">{children}</p>,
+                h3: ({ children }) => <p className="text-white font-semibold text-sm mb-1 mt-3">{children}</p>,
+                p: ({ children }) => <p className="text-gray-300 text-sm leading-relaxed mb-3">{children}</p>,
+                li: ({ children }) => <li className="text-gray-300 text-sm leading-relaxed ml-4 list-disc mb-0.5">{children}</li>,
+                ul: ({ children }) => <ul className="mb-3 space-y-0.5">{children}</ul>,
+                ol: ({ children }) => <ol className="mb-3 space-y-0.5 list-decimal ml-4">{children}</ol>,
+                strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                code: ({ children }) => <code className="text-blue-300 bg-blue-500/10 px-1 rounded text-xs">{children}</code>,
+                hr: () => <hr className="border-gray-700 my-4" />,
+                a: ({ href, children }) => (
+                  <button onClick={() => openUrl(href)} className="text-blue-400 hover:underline">
+                    {children}
+                  </button>
+                ),
+                table: ({ children }) => (
+                  <table className="w-full text-sm text-gray-300 border-collapse mb-3">{children}</table>
+                ),
+                th: ({ children }) => (
+                  <th className="text-left text-white font-semibold border-b border-gray-700 pb-1 pr-4">{children}</th>
+                ),
+                td: ({ children }) => (
+                  <td className="border-b border-gray-800 py-1 pr-4">{children}</td>
+                ),
+              }}
+            >
+              {release.body}
+            </ReactMarkdown>
+          ) : (
+            <p className="text-gray-500 text-sm">No release notes provided.</p>
+          )}
+        </div>
+
+        {release.assets?.length > 0 && (
+          <div className="px-6 py-4 border-t border-gray-800 shrink-0">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Downloads</p>
+            <div className="flex flex-col gap-2">
+              {release.assets.map((asset, i) => (
+                <div key={i} className="flex items-center justify-between px-4 py-3 bg-gray-800 rounded-xl">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Download size={15} className="text-gray-400 shrink-0" />
+                    <span className="text-white text-sm truncate">{asset.name}</span>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-gray-500 text-xs">{formatBytes(asset.size)}</span>
+                    <button
+                      onClick={() => openUrl(asset.browser_download_url)}
+                      className="text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      <ExternalLink size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="px-6 py-4 border-t border-gray-800 shrink-0">
+          <button
+            onClick={() => openUrl(release.html_url)}
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white text-sm transition-colors"
+          >
+            <ExternalLink size={14} />
+            View on GitHub
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function UpdatesTab() {
   const [status, setStatus] = useState('idle')
-  const [release, setRelease] = useState(null)
+  const [latestRelease, setLatestRelease] = useState(null)
+  const [currentRelease, setCurrentRelease] = useState(null)
   const [checkedAt, setCheckedAt] = useState(null)
   const [appVersion, setAppVersion] = useState('')
+  const [allowPrerelease, setAllowPrerelease] = useState(false)
+  const [showChangelog, setShowChangelog] = useState(null)
 
-  const check = async (version) => {
+  useEffect(() => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    invoke('get_config').then(c => {
+      invoke('get_app_version').then(v => {
+        setAppVersion(v)
+        checkForUpdates(v)
+      })
+    })
+  }, [])
+
+  const checkForUpdates = async (version) => {
     setStatus('checking')
     try {
-      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`)
-      if (!res.ok) throw new Error('GitHub API error')
-      const data = await res.json()
-      setRelease(data)
+      const allRes = await fetch('https://api.github.com/repos/klazorix/Expandly/releases')
+      if (!allRes.ok) throw new Error('GitHub API error')
+      const allReleases = await allRes.json()
+
+      const current = allReleases.find(r =>
+        r.tag_name === version ||
+        r.tag_name === `v${version}`
+      )
+      setCurrentRelease(current ?? null)
+
+      const latestRes = await fetch('https://api.github.com/repos/klazorix/Expandly/releases/latest')
+      if (!latestRes.ok) throw new Error('GitHub API error')
+      const candidate = await latestRes.json()
+
+      if (!candidate) throw new Error('No releases found')
+
+      setLatestRelease(candidate)
       setCheckedAt(new Date())
-      setStatus(newerVersion(data.tag_name, version) ? 'available' : 'uptodate')
+      setStatus(newerVersion(candidate.tag_name, version) ? 'available' : 'uptodate')
     } catch {
       setStatus('error')
     }
   }
 
-  useEffect(() => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    invoke('get_app_version').then(v => {
-      setAppVersion(v)
-      check(v)
-    })
-  }, [])
-
-  const assets = release?.assets ?? []
-  const openUrl = (url) => window.open(url, '_blank')
-
   return (
     <div>
-      <div className={`rounded-2xl border p-6 mb-4 transition-colors ${
-        status === 'available' ? 'bg-orange-500/5 border-orange-500/30'
+
+      <div className={`rounded-2xl border p-6 mb-4 transition-colors ${status === 'available' ? 'bg-orange-500/5 border-orange-500/30'
         : status === 'uptodate' ? 'bg-emerald-500/5 border-emerald-500/30'
-        : status === 'error' ? 'bg-red-500/5 border-red-500/30'
-        : 'bg-gray-900 border-gray-800'
-      }`}>
+          : status === 'error' ? 'bg-red-500/5 border-red-500/30'
+            : 'bg-gray-900 border-gray-800'
+        }`}>
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             {status === 'checking' && <RefreshCw size={24} className="text-blue-400 animate-spin shrink-0" />}
@@ -438,7 +642,7 @@ function UpdatesTab() {
               {status === 'checking' && (
                 <>
                   <p className="text-white font-semibold">Checking for updates...</p>
-                  <p className="text-gray-400 text-sm mt-0.5">Contacting GitHub</p>
+                  <p className="text-gray.400 text-sm mt-0.5">Contacting GitHub</p>
                 </>
               )}
               {status === 'uptodate' && (
@@ -449,8 +653,13 @@ function UpdatesTab() {
               )}
               {status === 'available' && (
                 <>
-                  <p className="text-white font-semibold">Update available - {release.tag_name}</p>
-                  <p className="text-gray-400 text-sm mt-0.5">Released {formatDate(release.published_at)}</p>
+                  <p className="text-white font-semibold">Update available — {latestRelease.tag_name}</p>
+                  <p className="text-gray-400 text-sm mt-0.5">
+                    Released {formatDate(latestRelease.published_at)}
+                    {latestRelease.prerelease && (
+                      <span className="ml-2 text-xs bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full">Pre-release</span>
+                    )}
+                  </p>
                 </>
               )}
               {status === 'error' && (
@@ -461,14 +670,24 @@ function UpdatesTab() {
               )}
             </div>
           </div>
-          <button
-            onClick={() => check(appVersion)}
-            disabled={status === 'checking'}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium transition-colors disabled:opacity-40 shrink-0"
-          >
-            <RefreshCw size={14} className={status === 'checking' ? 'animate-spin' : ''} />
-            Check
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {status === 'available' && latestRelease && (
+              <button
+                onClick={() => setShowChangelog(latestRelease)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 text-sm font-medium transition-colors"
+              >
+                What's New
+              </button>
+            )}
+            <button
+              onClick={() => checkForUpdates(appVersion, allowPrerelease)}
+              disabled={status === 'checking'}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium transition-colors disabled:opacity-40"
+            >
+              <RefreshCw size={14} className={status === 'checking' ? 'animate-spin' : ''} />
+              Check
+            </button>
+          </div>
         </div>
         {checkedAt && status !== 'checking' && (
           <p className="text-xs text-gray-600 mt-4">
@@ -477,47 +696,29 @@ function UpdatesTab() {
         )}
       </div>
 
-      {release && status === 'available' && (
-        <div>
-          {release.body && (
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-4">
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">What's New</h2>
-              <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{release.body}</div>
-            </div>
-          )}
-          {assets.length > 0 && (
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-4">
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">Downloads</h2>
-              <div className="flex flex-col gap-2">
-                {assets.map((asset, i) => (
-                  <div key={i} className="flex items-center justify-between px-4 py-3 bg-gray-800 rounded-xl">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <Download size={15} className="text-gray-400 shrink-0" />
-                      <span className="text-white text-sm truncate">{asset.name}</span>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-gray-500 text-xs">{formatBytes(asset.size)}</span>
-                      <button onClick={() => openUrl(asset.browser_download_url)} className="text-blue-400 hover:text-blue-300 transition-colors">
-                        <ExternalLink size={13} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          <button
-            onClick={() => openUrl(release.html_url)}
-            className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl bg-gray-900 border border-gray-800 hover:border-gray-700 text-gray-400 hover:text-white text-sm transition-colors"
-          >
-            <ExternalLink size={14} />
-            View on GitHub
-          </button>
-        </div>
+      {currentRelease && (
+        <button
+          onClick={() => setShowChangelog(currentRelease)}
+          className="w-full flex items-center justify-between bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-xl px-5 py-4 text-left transition-colors group"
+        >
+          <div>
+            <p className="text-white text-sm font-medium">Release Notes</p>
+            <p className="text-gray-500 text-xs mt-0.5">View changelog for your current version {appVersion}</p>
+          </div>
+          <ExternalLink size={15} className="text-gray-600 group-hover:text-gray-400 transition-colors shrink-0" />
+        </button>
+      )}
+
+      {showChangelog && (
+        <ChangelogModal
+          release={showChangelog}
+          onClose={() => setShowChangelog(null)}
+        />
       )}
     </div>
   )
 }
+
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('engine')
 
