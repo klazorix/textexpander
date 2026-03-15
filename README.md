@@ -1,4 +1,4 @@
-# Expandly 2 (Previous TextExpander v2)
+# Expandly 2 (Previously TextExpander v2)
 A lightweight peice of software developed by @klazorix that allows you to type commands (triggers) and have them expanded into set text of your choice.
 
 ## Get the latest version
