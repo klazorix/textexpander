@@ -13,9 +13,9 @@
     "windows": [
       {
         "title": "Expandly 4.0.0",
-        "width": 900,
-        "height": 600,
-        "minWidth": 800,
+        "width": 950,
+        "height": 700,
+        "minWidth": 900,
         "minHeight": 450,
         "resizable": true,
         "fullscreen": false
