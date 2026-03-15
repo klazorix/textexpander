@@ -28,3 +28,4 @@ enigo                        = "0.2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 rodio = { version = "0.17", features = ["mp3", "wav"] }
+open = "5"

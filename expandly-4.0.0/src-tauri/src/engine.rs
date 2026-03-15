@@ -5,6 +5,7 @@
 use crate::models::RootConfig;
 
 use std::{
+    path::PathBuf,
     sync::{Arc, Mutex},
     thread,
     time::Duration,
@@ -20,30 +21,29 @@ use rdev::{listen, Event, EventType, Key as RKey};
 const BUFFER_SIZE: usize = 64;
 const HOTKEY_INJECT_DELAY_MS: u64 = 80;
 
+pub fn days_from_epoch_pub(z: i64) -> (i64, i64, i64) {
+    days_from_epoch(z)
+}
+
 // ── Variable resolution ───────────────────────────────────────────────────
 
 fn resolve_variables(text: &str, config: &RootConfig) -> String {
     let now = chrono_now();
-
     let mut result = text.to_string();
-
     result = result.replace("{date}",     &now.date);
     result = result.replace("{time}",     &now.time);
     result = result.replace("{datetime}", &format!("{} {}", now.date, now.time));
     result = result.replace("{day}",      &now.day);
     result = result.replace("{month}",    &now.month);
     result = result.replace("{year}",     &now.year);
-
     if result.contains("{clipboard}") {
         let clipboard_text = get_clipboard().unwrap_or_default();
         result = result.replace("{clipboard}", &clipboard_text);
     }
-
     for var in &config.custom_variables {
         let token = format!("{{{}}}", var.name);
         result = result.replace(&token, &var.value);
     }
-
     result
 }
 
@@ -57,24 +57,16 @@ struct DateTime {
 
 fn chrono_now() -> DateTime {
     use std::time::{SystemTime, UNIX_EPOCH};
-
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
+    let secs             = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     let days_since_epoch = secs / 86400;
-    let secs_today = secs % 86400;
-    let hours   = secs_today / 3600;
-    let minutes = (secs_today % 3600) / 60;
-
-    let (y, m, d) = days_from_epoch(days_since_epoch as i64);
-
-    let day_of_week = ((days_since_epoch + 3) % 7) as usize;
+    let secs_today       = secs % 86400;
+    let hours            = secs_today / 3600;
+    let minutes          = (secs_today % 3600) / 60;
+    let (y, m, d)        = days_from_epoch(days_since_epoch as i64);
+    let day_of_week      = ((days_since_epoch + 3) % 7) as usize;
     let days   = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
     let months = ["January","February","March","April","May","June",
                   "July","August","September","October","November","December"];
-
     DateTime {
         date:  format!("{:02}/{:02}/{}", d, m, y),
         time:  format!("{:02}:{:02}", hours, minutes),
@@ -85,7 +77,7 @@ fn chrono_now() -> DateTime {
 }
 
 fn days_from_epoch(z: i64) -> (i64, i64, i64) {
-    let z = z + 719468;
+    let z   = z + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = z - era * 146097;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
@@ -96,6 +88,14 @@ fn days_from_epoch(z: i64) -> (i64, i64, i64) {
     let m   = if mp < 10 { mp + 3 } else { mp - 9 };
     let y   = if m <= 2 { y + 1 } else { y };
     (y, m, d)
+}
+
+fn today_string() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs      = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let days      = secs / 86400;
+    let (y, m, d) = days_from_epoch(days as i64);
+    format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
 fn get_clipboard() -> Option<String> {
@@ -131,13 +131,12 @@ fn rkey_to_char(key: &RKey) -> Option<char> {
         RKey::Num3 => Some('3'), RKey::Num4 => Some('4'), RKey::Num5 => Some('5'),
         RKey::Num6 => Some('6'), RKey::Num7 => Some('7'), RKey::Num8 => Some('8'),
         RKey::Num9 => Some('9'),
-        RKey::Slash => Some('/'), RKey::BackSlash => Some('\\'),
-        RKey::Dot => Some('.'), RKey::Comma => Some(','),
-        RKey::SemiColon => Some(';'), RKey::Quote => Some('\''),
-        RKey::LeftBracket => Some('['), RKey::RightBracket => Some(']'),
-        RKey::Minus => Some('-'), RKey::Equal => Some('='),
-        RKey::BackQuote => Some('`'),
-        RKey::Space => Some(' '),
+        RKey::Slash        => Some('/'), RKey::BackSlash    => Some('\\'),
+        RKey::Dot          => Some('.'), RKey::Comma        => Some(','),
+        RKey::SemiColon    => Some(';'), RKey::Quote        => Some('\''),
+        RKey::LeftBracket  => Some('['), RKey::RightBracket => Some(']'),
+        RKey::Minus        => Some('-'), RKey::Equal        => Some('='),
+        RKey::BackQuote    => Some('`'), RKey::Space        => Some(' '),
         _ => None,
     }
 }
@@ -199,16 +198,30 @@ fn delete_chars(n: usize) {
     }
 }
 
+fn record_stats(
+    config: &Arc<Mutex<RootConfig>>,
+    path: &PathBuf,
+    expansion_id: &str,
+) {
+    let mut cfg = config.lock().unwrap();
+    if !cfg.track_stats { return; }
+    cfg.stats.total_expansions += 1;
+    *cfg.stats.expansions_per_day.entry(today_string()).or_insert(0) += 1;
+    *cfg.stats.expansion_counts.entry(expansion_id.to_string()).or_insert(0) += 1;
+    crate::helpers::persist_config(path, &cfg);
+}
+
 // ── Engine ────────────────────────────────────────────────────────────────
 
-pub fn start(config: Arc<Mutex<RootConfig>>) {
+pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
     thread::spawn(move || {
-        let buffer: Arc<Mutex<Vec<char>>> = Arc::new(Mutex::new(Vec::new()));
+        let buffer:    Arc<Mutex<Vec<char>>>   = Arc::new(Mutex::new(Vec::new()));
         let held_keys: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
         let buffer_clone = Arc::clone(&buffer);
         let held_clone   = Arc::clone(&held_keys);
         let config_clone = Arc::clone(&config);
+        let path_clone   = config_file_path.clone();
 
         listen(move |event: Event| {
             match event.event_type {
@@ -216,7 +229,6 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
                 // ── Key pressed ───────────────────────────────────────────
                 EventType::KeyPress(key) => {
 
-                    // Track modifiers
                     if let Some(modifier) = rkey_to_modifier_str(&key) {
                         let mut held = held_clone.lock().unwrap();
                         if !held.contains(&modifier.to_string()) {
@@ -240,11 +252,16 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
                                 for hotkey in &cfg.hotkeys {
                                     if hotkey.keys.eq_ignore_ascii_case(&combo) {
                                         if let Some(expansion) = cfg.expansions.get(&hotkey.expansion_id) {
-                                            let text = resolve_variables(&expansion.text, &cfg);
+                                            let text        = resolve_variables(&expansion.text, &cfg);
+                                            let exp_id      = hotkey.expansion_id.clone();
+                                            let chars_saved = if text.len() > hotkey.keys.len() {
+                                                (text.len() - hotkey.keys.len()) as u64
+                                            } else { 0 };
                                             drop(cfg);
                                             drop(held);
                                             thread::sleep(Duration::from_millis(HOTKEY_INJECT_DELAY_MS));
                                             inject_text(&text);
+                                            record_stats(&config_clone, &path_clone, &exp_id);
                                             return;
                                         }
                                     }
@@ -259,14 +276,12 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
                         let mut buf = buffer_clone.lock().unwrap();
 
                         match key {
-                            RKey::Backspace => { buf.pop(); }
+                            RKey::Backspace             => { buf.pop(); }
                             RKey::Return | RKey::Escape => { buf.clear(); }
                             _ => {
                                 if let Some(c) = rkey_to_char(&key) {
                                     buf.push(c);
-                                    if buf.len() > BUFFER_SIZE {
-                                        buf.remove(0);
-                                    }
+                                    if buf.len() > BUFFER_SIZE { buf.remove(0); }
                                 } else {
                                     buf.clear();
                                 }
@@ -275,38 +290,36 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
 
                         // ── Trigger check ─────────────────────────────────
                         let buf_str: String = buf.iter().collect();
-                        let mut matched: Option<(String, usize)> = None;
+                        let mut matched: Option<(String, usize, String)> = None;
 
                         for trigger in &cfg.triggers {
                             if buf_str.ends_with(&trigger.key) {
                                 if trigger.word_boundary {
                                     let before = buf_str.len() - trigger.key.len();
                                     if before > 0 {
-                                        let prev_char = buf_str.chars().nth(before - 1).unwrap_or(' ');
-                                        if !prev_char.is_whitespace() {
-                                            continue;
-                                        }
+                                        let prev = buf_str.chars().nth(before - 1).unwrap_or(' ');
+                                        if !prev.is_whitespace() { continue; }
                                     }
                                 }
-
                                 if let Some(expansion) = cfg.expansions.get(&trigger.expansion_id) {
-                                    let text = resolve_variables(&expansion.text, &cfg);
-                                    let delete_count = trigger.key.len();
-                                    matched = Some((text, delete_count));
+                                    let text   = resolve_variables(&expansion.text, &cfg);
+                                    let del    = trigger.key.len();
+                                    let exp_id = trigger.expansion_id.clone();
+                                    matched = Some((text, del, exp_id));
                                     break;
                                 }
                             }
                         }
 
-                        if matched.is_some() {
-                            buf.clear();
-                        }
-
+                        if matched.is_some() { buf.clear(); }
                         drop(buf);
                         drop(cfg);
 
-                        if let Some((text, delete_count)) = matched {
-                            // Read sound settings before sleeping
+                        if let Some((text, delete_count, expansion_id)) = matched {
+                            let chars_saved = if text.len() > delete_count {
+                                (text.len() - delete_count) as u64
+                            } else { 0 };
+
                             let (sound_enabled, sound_path) = {
                                 let cfg = config_clone.lock().unwrap();
                                 (cfg.sound_enabled, cfg.sound_path.clone())
@@ -315,6 +328,7 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
                             thread::sleep(Duration::from_millis(320));
                             delete_chars(delete_count);
                             inject_text(&text);
+                            record_stats(&config_clone, &path_clone, &expansion_id);
 
                             if sound_enabled {
                                 if let Some(path) = sound_path {
@@ -323,11 +337,10 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
                                         use std::fs::File;
                                         use std::io::BufReader;
 
-                                        let result = OutputStream::try_default();
-                                        let Ok((_stream, stream_handle)) = result else { return };
-                                        let Ok(sink) = Sink::try_new(&stream_handle) else { return };
-                                        let Ok(file) = File::open(&path) else { return };
-                                        let Ok(source) = Decoder::new(BufReader::new(file)) else { return };
+                                        let Ok((_stream, handle)) = OutputStream::try_default()       else { return };
+                                        let Ok(sink)              = Sink::try_new(&handle)             else { return };
+                                        let Ok(file)              = File::open(&path)                  else { return };
+                                        let Ok(source)            = Decoder::new(BufReader::new(file)) else { return };
 
                                         sink.append(source);
                                         let start = std::time::Instant::now();
@@ -341,6 +354,7 @@ pub fn start(config: Arc<Mutex<RootConfig>>) {
                                     });
                                 }
                             }
+
                             return;
                         }
                     }

@@ -1,5 +1,6 @@
 mod models;
 mod engine;
+mod helpers;
 
 use models::{CustomVariable, Expansion, Hotkey, RootConfig, Trigger};
 
@@ -67,6 +68,25 @@ fn load_or_create_config(app: &tauri::AppHandle) -> RootConfig {
     persist_config(&path, &default_config);
     println!("[expandly] Default config written to {:?}", path);
     default_config
+}
+
+#[tauri::command]
+fn update_prerelease_setting(
+    allow_prerelease: bool,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.allow_prerelease = allow_prerelease;
+    persist_config(&config_path(&app)?, &config);
+    Ok(())
+}
+
+// ── About ────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    open::that(url).map_err(|e| e.to_string())
 }
 
 // ── Config ────────────────────────────────────────────────────────────────
@@ -305,6 +325,62 @@ fn delete_custom_variable(id: String, state: State<'_, AppState>, app: tauri::Ap
     Ok(())
 }
 
+// ── Statistics ────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn record_expansion(
+    chars_saved: u64,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    
+    if !config.track_stats {
+        return Ok(());
+    }
+
+    config.stats.total_expansions += 1;
+    config.stats.total_chars_saved += chars_saved;
+
+    let today = {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let days = secs / 86400;
+        let (y, m, d) = crate::engine::days_from_epoch_pub(days as i64);
+        format!("{:04}-{:02}-{:02}", y, m, d)
+    };
+
+    *config.stats.expansions_per_day.entry(today).or_insert(0) += 1;
+    persist_config(&config_path(&app)?, &config);
+    Ok(())
+}
+
+#[tauri::command]
+fn update_track_stats(
+    track_stats: bool,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.track_stats = track_stats;
+    persist_config(&config_path(&app)?, &config);
+    Ok(())
+}
+
+#[tauri::command]
+fn reset_stats(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.stats = crate::models::GlobalStats::default();
+    persist_config(&config_path(&app)?, &config);
+    Ok(())
+}
+
 // ── Run ───────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -323,8 +399,9 @@ pub fn run() {
         .setup(|app| {
             let config = load_or_create_config(&app.handle());
             let config = Arc::new(Mutex::new(config));
+            let path = config_path(&app.handle()).unwrap_or_default();
 
-            engine::start(Arc::clone(&config));
+            engine::start(Arc::clone(&config), path);
 
             // Read startup settings before managing state
             let (minimise_to_tray, launch_minimised) = {
@@ -424,6 +501,11 @@ pub fn run() {
             export_config,
             reset_config,
             get_app_version,
+            open_url,
+            record_expansion,
+            update_track_stats,
+            reset_stats,
+            update_prerelease_setting,
         ])
         .run(tauri::generate_context!())
         .expect("error while running expandly");
