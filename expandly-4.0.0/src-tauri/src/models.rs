@@ -37,6 +37,9 @@ pub struct GlobalStats {
 
     #[serde(default)]
     pub expansions_per_day: HashMap<String, u64>,
+
+    #[serde(default)]
+    pub expansion_counts: HashMap<String, u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +81,9 @@ pub struct RootConfig {
 
     #[serde(default)]
     pub launch_minimised: bool,
+
+    #[serde(default = "default_track_stats")]
+    pub track_stats: bool,
 }
 
 fn default_enabled() -> bool {
@@ -86,6 +92,10 @@ fn default_enabled() -> bool {
 
 fn default_theme() -> String {
     "starry-blue".to_string()
+}
+
+fn default_track_stats() -> bool {
+    true
 }
 
 impl Default for RootConfig {
@@ -148,6 +158,7 @@ impl Default for RootConfig {
             ],
 
             stats: GlobalStats::default(),
+            track_stats: true,
         }
     }
 }

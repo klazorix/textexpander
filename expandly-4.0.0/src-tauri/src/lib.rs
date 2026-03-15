@@ -70,18 +70,6 @@ fn load_or_create_config(app: &tauri::AppHandle) -> RootConfig {
     default_config
 }
 
-#[tauri::command]
-fn update_prerelease_setting(
-    allow_prerelease: bool,
-    state: State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    config.allow_prerelease = allow_prerelease;
-    persist_config(&config_path(&app)?, &config);
-    Ok(())
-}
-
 // ── About ────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -504,8 +492,7 @@ pub fn run() {
             open_url,
             record_expansion,
             update_track_stats,
-            reset_stats,
-            update_prerelease_setting,
+            reset_stats
         ])
         .run(tauri::generate_context!())
         .expect("error while running expandly");
