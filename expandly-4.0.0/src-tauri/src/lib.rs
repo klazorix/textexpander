@@ -369,6 +369,25 @@ fn reset_stats(
     Ok(())
 }
 
+// ── Splash ────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn close_splash(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(splash) = app.get_webview_window("splash") {
+        splash.close().map_err(|e| e.to_string())?;
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        // Respect launch_minimised setting
+        let config = app.state::<AppState>();
+        let minimised = config.config.lock().unwrap().launch_minimised;
+        if !minimised {
+            main.show().map_err(|e| e.to_string())?;
+            main.set_focus().map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 // ── Run ───────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -492,7 +511,8 @@ pub fn run() {
             open_url,
             record_expansion,
             update_track_stats,
-            reset_stats
+            reset_stats,
+            close_splash,
         ])
         .run(tauri::generate_context!())
         .expect("error while running expandly");

@@ -18,7 +18,20 @@
         "minWidth": 900,
         "minHeight": 450,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "visible": false
+      },
+      {
+        "title": "Expandly",
+        "width": 400,
+        "height": 200,
+        "resizable": false,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "center": true,
+        "label": "splash",
+        "url": "splash.html"
       }
     ],
     "security": {

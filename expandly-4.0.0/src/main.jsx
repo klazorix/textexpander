@@ -21,6 +21,11 @@ async function init() {
       </BrowserRouter>
     </React.StrictMode>
   )
+
+  setTimeout(() => {
+    invoke('close_splash').catch(() => { })
+  }, 500)
+  
 }
 
 init()
