@@ -214,6 +214,22 @@ fn update_buffer_size(
     Ok(())
 }
 
+#[tauri::command]
+fn update_performance_settings(
+    hotkey_delay_ms: u64,
+    engine_restart_delay_ms: u64,
+    clear_buffer_on_switch: bool,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.hotkey_delay_ms = hotkey_delay_ms;
+    config.engine_restart_delay_ms = engine_restart_delay_ms;
+    config.clear_buffer_on_switch = clear_buffer_on_switch;
+    persist_config(&config_path(&app)?, &config);
+    Ok(())
+}
+
 // ── Expansions ────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -545,6 +561,7 @@ pub fn run() {
             close_splash,
             update_expansion_delay,
             update_buffer_size,
+            update_performance_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running expandly");

@@ -22,8 +22,6 @@ use std::{
 use enigo::{Direction::Click, Enigo, Key, Keyboard, Settings};
 use rdev::{listen, Event, EventType, Key as RKey};
 
-const HOTKEY_INJECT_DELAY_MS: u64 = 80;
-
 pub fn days_from_epoch_pub(z: i64) -> (i64, i64, i64) {
     days_from_epoch(z)
 }
@@ -157,7 +155,7 @@ fn rkey_to_name(key: &RKey) -> Option<String> {
     Some(s.to_string())
 }
 
-// ── Text injection — reuse a single Enigo instance ────────────────────────
+// ── Text injection ────────────────────────────────────────────────────────
 
 fn with_enigo<F: FnOnce(&mut Enigo)>(f: F) {
     match Enigo::new(&Settings::default()) {
@@ -184,7 +182,7 @@ fn record_stats(config: &Arc<Mutex<RootConfig>>, path: &PathBuf, expansion_id: &
         let mut cfg = config.lock().unwrap();
         if !cfg.track_stats { return; }
         cfg.stats.total_expansions  += 1;
-        cfg.stats.total_chars_saved += 0; // updated by caller if needed
+        cfg.stats.total_chars_saved += 0;
         *cfg.stats.expansions_per_day.entry(today_string()).or_insert(0) += 1;
         *cfg.stats.expansion_counts.entry(exp_id).or_insert(0)          += 1;
         crate::helpers::persist_config(&path, &cfg);
@@ -213,29 +211,35 @@ fn play_sound(path: String) {
 // ── Snapshot: cheap copy of only what the event loop needs ───────────────
 
 struct EngineSnapshot {
-    enabled:           bool,
-    buffer_size:       usize,
-    expansion_delay:   u64,
-    sound_enabled:     bool,
-    sound_path:        Option<String>,
-    triggers:          Vec<crate::models::Trigger>,
-    hotkeys:           Vec<crate::models::Hotkey>,
-    expansions:        std::collections::HashMap<String, crate::models::Expansion>,
-    custom_variables:  Vec<crate::models::CustomVariable>,
+    enabled:                bool,
+    buffer_size:            usize,
+    expansion_delay:        u64,
+    hotkey_delay:           u64,
+    engine_restart_delay:   u64,
+    clear_buffer_on_switch: bool,
+    sound_enabled:          bool,
+    sound_path:             Option<String>,
+    triggers:               Vec<crate::models::Trigger>,
+    hotkeys:                Vec<crate::models::Hotkey>,
+    expansions:             std::collections::HashMap<String, crate::models::Expansion>,
+    custom_variables:       Vec<crate::models::CustomVariable>,
 }
 
 impl EngineSnapshot {
     fn from(cfg: &RootConfig) -> Self {
         Self {
-            enabled:          cfg.enabled,
-            buffer_size:      cfg.buffer_size,
-            expansion_delay:  cfg.expansion_delay_ms,
-            sound_enabled:    cfg.sound_enabled,
-            sound_path:       cfg.sound_path.clone(),
-            triggers:         cfg.triggers.clone(),
-            hotkeys:          cfg.hotkeys.clone(),
-            expansions:       cfg.expansions.clone(),
-            custom_variables: cfg.custom_variables.clone(),
+            enabled:                cfg.enabled,
+            buffer_size:            cfg.buffer_size,
+            expansion_delay:        cfg.expansion_delay_ms,
+            hotkey_delay:           cfg.hotkey_delay_ms,
+            engine_restart_delay:   cfg.engine_restart_delay_ms,
+            clear_buffer_on_switch: cfg.clear_buffer_on_switch,
+            sound_enabled:          cfg.sound_enabled,
+            sound_path:             cfg.sound_path.clone(),
+            triggers:               cfg.triggers.clone(),
+            hotkeys:                cfg.hotkeys.clone(),
+            expansions:             cfg.expansions.clone(),
+            custom_variables:       cfg.custom_variables.clone(),
         }
     }
 }
@@ -245,7 +249,6 @@ impl EngineSnapshot {
 pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
     thread::spawn(move || {
         loop {
-            // Local state — recreated on each restart
             let buffer:    Arc<Mutex<Vec<char>>>   = Arc::new(Mutex::new(Vec::new()));
             let held_keys: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -253,6 +256,12 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
             let held_clone   = Arc::clone(&held_keys);
             let config_clone = Arc::clone(&config);
             let path_clone   = config_file_path.clone();
+
+            // Read restart delay before entering listen (can't access snap inside loop level)
+            let restart_delay = {
+                let cfg = config.lock().unwrap();
+                cfg.engine_restart_delay_ms
+            };
 
             let result = listen(move |event: Event| {
                 match event.event_type {
@@ -276,6 +285,16 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                             EngineSnapshot::from(&*cfg)
                         };
 
+                        // ── Clear buffer on window switch (Alt+Tab / Super+Tab) ──
+                        if snap.clear_buffer_on_switch {
+                            let held = held_clone.lock().unwrap();
+                            if held.contains(&"Alt".to_string()) || held.contains(&"Super".to_string()) {
+                                drop(held);
+                                buffer_clone.lock().unwrap().clear();
+                                return;
+                            }
+                        }
+
                         // ── Hotkey check ──────────────────────────────────
                         {
                             let held = held_clone.lock().unwrap();
@@ -289,12 +308,13 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                                     for hotkey in &snap.hotkeys {
                                         if hotkey.keys.eq_ignore_ascii_case(&combo) {
                                             if let Some(expansion) = snap.expansions.get(&hotkey.expansion_id) {
-                                                let text   = resolve_variables(&expansion.text, &snap_cfg_ref(&snap));
-                                                let exp_id = hotkey.expansion_id.clone();
-                                                let cc     = Arc::clone(&config_clone);
-                                                let pc     = path_clone.clone();
+                                                let text      = resolve_variables(&expansion.text, &snap_cfg_ref(&snap));
+                                                let exp_id    = hotkey.expansion_id.clone();
+                                                let cc        = Arc::clone(&config_clone);
+                                                let pc        = path_clone.clone();
+                                                let hk_delay  = snap.hotkey_delay;
                                                 thread::spawn(move || {
-                                                    thread::sleep(Duration::from_millis(HOTKEY_INJECT_DELAY_MS));
+                                                    thread::sleep(Duration::from_millis(hk_delay));
                                                     inject_text(&text);
                                                     record_stats(&cc, &pc, &exp_id);
                                                 });
@@ -379,8 +399,8 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                 }
             });
 
-            eprintln!("[engine] listener exited ({:?}), restarting in 1s", result);
-            thread::sleep(Duration::from_secs(1));
+            eprintln!("[engine] listener exited ({:?}), restarting in {}ms", result, restart_delay);
+            thread::sleep(Duration::from_millis(restart_delay));
         }
     });
 }
@@ -388,21 +408,24 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
 // Helper: build a minimal RootConfig-like reference from snapshot for resolve_variables
 fn snap_cfg_ref(snap: &EngineSnapshot) -> RootConfig {
     RootConfig {
-        version:            String::new(),
-        enabled:            snap.enabled,
-        sound_enabled:      snap.sound_enabled,
-        sound_path:         snap.sound_path.clone(),
-        launch_at_startup:  false,
-        launch_minimised:   false,
-        minimise_to_tray:   false,
-        theme:              String::new(),
-        track_stats:        false,
-        expansion_delay_ms: snap.expansion_delay,
-        buffer_size:        snap.buffer_size,
-        expansions:         snap.expansions.clone(),
-        triggers:           snap.triggers.clone(),
-        hotkeys:            snap.hotkeys.clone(),
-        custom_variables:   snap.custom_variables.clone(),
-        stats:              crate::models::GlobalStats::default(),
+        version:                String::new(),
+        enabled:                snap.enabled,
+        sound_enabled:          snap.sound_enabled,
+        sound_path:             snap.sound_path.clone(),
+        launch_at_startup:      false,
+        launch_minimised:       false,
+        minimise_to_tray:       false,
+        theme:                  String::new(),
+        track_stats:            false,
+        expansion_delay_ms:     snap.expansion_delay,
+        buffer_size:            snap.buffer_size,
+        hotkey_delay_ms:        snap.hotkey_delay,
+        engine_restart_delay_ms: snap.engine_restart_delay,
+        clear_buffer_on_switch: snap.clear_buffer_on_switch,
+        expansions:             snap.expansions.clone(),
+        triggers:               snap.triggers.clone(),
+        hotkeys:                snap.hotkeys.clone(),
+        custom_variables:       snap.custom_variables.clone(),
+        stats:                  crate::models::GlobalStats::default(),
     }
 }

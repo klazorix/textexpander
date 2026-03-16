@@ -91,27 +91,28 @@ pub struct RootConfig {
     #[serde(default = "default_buffer_size")]
     pub buffer_size: usize,
 
+    #[serde(default = "default_hotkey_delay")]
+    pub hotkey_delay_ms: u64,
+
+    #[serde(default = "default_engine_restart_delay")]
+    pub engine_restart_delay_ms: u64,
+
+    #[serde(default = "default_clear_buffer_on_switch")]
+    pub clear_buffer_on_switch: bool,
+
 }
 
-fn default_enabled() -> bool {
-    true
-}
+fn default_enabled() -> bool { true }
 
-fn default_theme() -> String {
-    "starry-blue".to_string()
-}
+fn default_theme() -> String { "starry-blue".to_string() }
 
-fn default_track_stats() -> bool {
-    true
-}
+fn default_track_stats() -> bool { true }
 
-fn default_expansion_delay_ms() -> u64 {
-    325
-}
-
-fn default_buffer_size() -> usize {
-    16
-}
+fn default_expansion_delay_ms() -> u64 { 325 }
+fn default_buffer_size() -> usize { 16 }
+fn default_hotkey_delay() -> u64 { 80 }
+fn default_engine_restart_delay() -> u64 { 1000 }
+fn default_clear_buffer_on_switch() -> bool { true }
 
 impl Default for RootConfig {
     fn default() -> Self {
@@ -135,10 +136,14 @@ impl Default for RootConfig {
 
         Self {
             version: String::new(),
-            
+
             enabled: true,
+
             expansion_delay_ms: 325,
             buffer_size: 16,
+            hotkey_delay_ms: 80,
+            engine_restart_delay_ms: 1000,
+            clear_buffer_on_switch: true,
 
             sound_enabled: false,
             sound_path: None,

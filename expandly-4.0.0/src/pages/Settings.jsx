@@ -77,6 +77,9 @@ function EngineTab() {
   const [appVersion, setAppVersion] = useState("")
   const [expansionDelay, setExpansionDelay] = useState(325)
   const [bufferSize, setBufferSize] = useState(16)
+  const [hotkeyDelay, setHotkeyDelay] = useState(80)
+  const [engineRestartDelay, setEngineRestartDelay] = useState(1000)
+  const [clearBufferOnSwitch, setClearBufferOnSwitch] = useState(true)
   const fileRef = useRef()
 
   useEffect(() => {
@@ -88,6 +91,9 @@ function EngineTab() {
       setLaunchMinimised(c.launch_minimised ?? false)
       setExpansionDelay(c.expansion_delay_ms ?? 325)
       setBufferSize(c.buffer_size ?? 16)
+      setHotkeyDelay(c.hotkey_delay_ms ?? 80)
+      setEngineRestartDelay(c.engine_restart_delay_ms ?? 1000)
+      setClearBufferOnSwitch(c.clear_buffer_on_switch ?? true)
     })
   }, [])
 
@@ -127,6 +133,15 @@ function EngineTab() {
     await invoke('update_expansion_delay', { expansionDelayMs: num })
   }
 
+  const handlePerformance = async (overrides = {}) => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    await invoke('update_performance_settings', {
+      hotkeyDelayMs: overrides.hotkeyDelayMs ?? hotkeyDelay,
+      engineRestartDelayMs: overrides.engineRestartDelayMs ?? engineRestartDelay,
+      clearBufferOnSwitch: overrides.clearBufferOnSwitch ?? clearBufferOnSwitch,
+    })
+  }
+
   const handleBufferSize = async (val) => {
     const { invoke } = window.__TAURI_INTERNALS__
     const num = Math.max(1, Math.min(64, parseInt(val) || 16))
@@ -147,6 +162,28 @@ function EngineTab() {
         <div className="py-3">
           <p className="text-xs text-gray-600">Expandly Engine {appVersion}</p>
         </div>
+      </Card>
+
+      <SectionLabel>Startup</SectionLabel>
+      <Card>
+        <SettingRow
+          label="Launch at Login"
+          description="Start Expandly automatically when you log in"
+        >
+          <Toggle value={launchAtStartup} onChange={handleStartup} />
+        </SettingRow>
+        <SettingRow
+          label="Launch Minimised"
+          description="Start Expandly minimised to the system tray"
+        >
+          <Toggle value={launchMinimised} onChange={handleLaunchMinimised} />
+        </SettingRow>
+        <SettingRow
+          label="Minimise to Tray on Close"
+          description="Keep Expandly running in the system tray when the window is closed"
+        >
+          <Toggle value={minimiseToTray} onChange={handleTray} />
+        </SettingRow>
       </Card>
 
       <SectionLabel>Performance</SectionLabel>
@@ -194,27 +231,77 @@ function EngineTab() {
             ))}
           </select>
         </SettingRow>
-      </Card>
 
-      <SectionLabel>Startup</SectionLabel>
-      <Card>
         <SettingRow
-          label="Launch at Login"
-          description="Start Expandly automatically when you log in"
+          label={
+            <div className="flex items-center gap-2">
+              <span>Hotkey Insert Delay</span>
+              <span className="text-xs bg-orange-500/15 text-orange-300 px-2 py-0.5 rounded-md">
+                Medium Impact
+              </span>
+            </div>
+          }
+          description="Time to wait after a hotkey is pressed before pasting the snippet."
         >
-          <Toggle value={launchAtStartup} onChange={handleStartup} />
+          <select
+            value={hotkeyDelay}
+            onChange={e => {
+              const val = parseInt(e.target.value)
+              setHotkeyDelay(val)
+              handlePerformance({ hotkeyDelayMs: val })
+            }}
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
+          >
+            {[40, 60, 80, 100, 120, 150, 200].map(v => (
+              <option key={v} value={v}>{v}ms</option>
+            ))}
+          </select>
         </SettingRow>
+
         <SettingRow
-          label="Launch Minimised"
-          description="Start Expandly minimised to the system tray"
+          label={
+            <div className="flex items-center gap-2">
+              <span>Engine Restart Delay</span>
+              <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-md">
+                Low Impact
+              </span>
+            </div>
+          }
+          description="How long to wait before restarting the engine if it stops responding."
         >
-          <Toggle value={launchMinimised} onChange={handleLaunchMinimised} />
+          <select
+            value={engineRestartDelay}
+            onChange={e => {
+              const val = parseInt(e.target.value)
+              setEngineRestartDelay(val)
+              handlePerformance({ engineRestartDelayMs: val })
+            }}
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
+          >
+            {[500, 1000, 2000, 3000, 5000].map(v => (
+              <option key={v} value={v}>{v}ms</option>
+            ))}
+          </select>
         </SettingRow>
+
         <SettingRow
-          label="Minimise to Tray on Close"
-          description="Keep Expandly running in the system tray when the window is closed"
+          label={
+            <div className="flex items-center gap-2">
+              <span>Clear Buffer on Window Switch</span>
+              <span className="text-xs bg-red-500/15 text-red-300 px-2 py-0.5 rounded-md">
+                High Impact
+              </span>
+            </div>
+          }
+          description="Clears the typed character buffer when you switch applications, preventing accidental trigger matches."
         >
-          <Toggle value={minimiseToTray} onChange={handleTray} />
+          <Toggle
+            value={clearBufferOnSwitch}
+            onChange={val => {
+              setClearBufferOnSwitch(val)
+              handlePerformance({ clearBufferOnSwitch: val })
+            }}
+          />
         </SettingRow>
       </Card>
     </div>
