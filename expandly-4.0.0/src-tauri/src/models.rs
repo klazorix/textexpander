@@ -87,7 +87,10 @@ pub struct RootConfig {
 
     #[serde(default = "default_expansion_delay_ms")]
     pub expansion_delay_ms: u64,
-    
+
+    #[serde(default = "default_buffer_size")]
+    pub buffer_size: usize,
+
 }
 
 fn default_enabled() -> bool {
@@ -104,6 +107,10 @@ fn default_track_stats() -> bool {
 
 fn default_expansion_delay_ms() -> u64 {
     325
+}
+
+fn default_buffer_size() -> usize {
+    16
 }
 
 impl Default for RootConfig {
@@ -128,8 +135,10 @@ impl Default for RootConfig {
 
         Self {
             version: String::new(),
+            
             enabled: true,
             expansion_delay_ms: 325,
+            buffer_size: 16,
 
             sound_enabled: false,
             sound_path: None,

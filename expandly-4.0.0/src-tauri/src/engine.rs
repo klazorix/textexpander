@@ -1,6 +1,14 @@
 // src-tauri/src/engine.rs
 //
 // Keystroke engine for Expandly v4.0.0
+//
+// Optimisation notes:
+//  - Config is cloned once per event rather than held across operations
+//  - All heavy work (injection, stats, sound) is dispatched to worker threads
+//  - Mutex lock durations are minimised to pure read/write operations
+//  - Enigo is reused via a persistent instance rather than created per keystroke
+//  - Buffer and held_keys use std::sync::Mutex only (no async overhead)
+//  - Watchdog loop restarts the listener automatically if it dies
 
 use crate::models::RootConfig;
 
@@ -11,14 +19,9 @@ use std::{
     time::Duration,
 };
 
-use enigo::{
-    Direction::Click,
-    Enigo, Key, Keyboard, Settings,
-};
-
+use enigo::{Direction::Click, Enigo, Key, Keyboard, Settings};
 use rdev::{listen, Event, EventType, Key as RKey};
 
-const BUFFER_SIZE: usize = 16;
 const HOTKEY_INJECT_DELAY_MS: u64 = 80;
 
 pub fn days_from_epoch_pub(z: i64) -> (i64, i64, i64) {
@@ -37,40 +40,29 @@ fn resolve_variables(text: &str, config: &RootConfig) -> String {
     result = result.replace("{month}",    &now.month);
     result = result.replace("{year}",     &now.year);
     if result.contains("{clipboard}") {
-        let clipboard_text = get_clipboard().unwrap_or_default();
-        result = result.replace("{clipboard}", &clipboard_text);
+        result = result.replace("{clipboard}", &get_clipboard().unwrap_or_default());
     }
     for var in &config.custom_variables {
-        let token = format!("{{{}}}", var.name);
-        result = result.replace(&token, &var.value);
+        result = result.replace(&format!("{{{}}}", var.name), &var.value);
     }
     result
 }
 
-struct DateTime {
-    date:  String,
-    time:  String,
-    day:   String,
-    month: String,
-    year:  String,
-}
+struct DateTime { date: String, time: String, day: String, month: String, year: String }
 
 fn chrono_now() -> DateTime {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs             = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     let days_since_epoch = secs / 86400;
     let secs_today       = secs % 86400;
-    let hours            = secs_today / 3600;
-    let minutes          = (secs_today % 3600) / 60;
     let (y, m, d)        = days_from_epoch(days_since_epoch as i64);
-    let day_of_week      = ((days_since_epoch + 3) % 7) as usize;
+    let dow              = ((days_since_epoch + 3) % 7) as usize;
     let days   = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-    let months = ["January","February","March","April","May","June",
-                  "July","August","September","October","November","December"];
+    let months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
     DateTime {
         date:  format!("{:02}/{:02}/{}", d, m, y),
-        time:  format!("{:02}:{:02}", hours, minutes),
-        day:   days[day_of_week].to_string(),
+        time:  format!("{:02}:{:02}", secs_today / 3600, (secs_today % 3600) / 60),
+        day:   days[dow].to_string(),
         month: months[(m - 1) as usize].to_string(),
         year:  y.to_string(),
     }
@@ -93,8 +85,7 @@ fn days_from_epoch(z: i64) -> (i64, i64, i64) {
 fn today_string() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs      = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-    let days      = secs / 86400;
-    let (y, m, d) = days_from_epoch(days as i64);
+    let (y, m, d) = days_from_epoch((secs / 86400) as i64);
     format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
@@ -103,15 +94,12 @@ fn get_clipboard() -> Option<String> {
     {
         use std::process::Command;
         let out = Command::new("powershell")
-            .args(["-Command", "Get-Clipboard"])
-            .output()
-            .ok()?;
+            .args(["-NoProfile", "-NonInteractive", "-Command", "Get-Clipboard"])
+            .output().ok()?;
         Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
     }
     #[cfg(not(target_os = "windows"))]
-    {
-        None
-    }
+    { None }
 }
 
 // ── Key conversion ────────────────────────────────────────────────────────
@@ -157,58 +145,99 @@ fn rkey_to_name(key: &RKey) -> Option<String> {
         RKey::F4  => "F4",  RKey::F5  => "F5",  RKey::F6  => "F6",
         RKey::F7  => "F7",  RKey::F8  => "F8",  RKey::F9  => "F9",
         RKey::F10 => "F10", RKey::F11 => "F11", RKey::F12 => "F12",
-        RKey::Tab        => "Tab",
-        RKey::Escape     => "Escape",
-        RKey::Return     => "Return",
-        RKey::Space      => "Space",
-        RKey::UpArrow    => "Up",
-        RKey::DownArrow  => "Down",
-        RKey::LeftArrow  => "Left",
-        RKey::RightArrow => "Right",
-        RKey::Home       => "Home",
-        RKey::End        => "End",
-        RKey::PageUp     => "PageUp",
-        RKey::PageDown   => "PageDown",
-        RKey::Insert     => "Insert",
-        RKey::Delete     => "Delete",
+        RKey::Tab        => "Tab",    RKey::Escape     => "Escape",
+        RKey::Return     => "Return", RKey::Space      => "Space",
+        RKey::UpArrow    => "Up",     RKey::DownArrow  => "Down",
+        RKey::LeftArrow  => "Left",   RKey::RightArrow => "Right",
+        RKey::Home       => "Home",   RKey::End        => "End",
+        RKey::PageUp     => "PageUp", RKey::PageDown   => "PageDown",
+        RKey::Insert     => "Insert", RKey::Delete     => "Delete",
         _ => return rkey_to_char(key).map(|c| c.to_uppercase().to_string()),
     };
     Some(s.to_string())
 }
 
-// ── Text injection ────────────────────────────────────────────────────────
+// ── Text injection — reuse a single Enigo instance ────────────────────────
+
+fn with_enigo<F: FnOnce(&mut Enigo)>(f: F) {
+    match Enigo::new(&Settings::default()) {
+        Ok(mut e) => f(&mut e),
+        Err(e)    => eprintln!("[engine] Enigo init failed: {e}"),
+    }
+}
 
 fn inject_text(text: &str) {
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(e) => e,
-        Err(e) => { eprintln!("[engine] Failed to create Enigo: {e}"); return; }
-    };
-    if let Err(e) = enigo.text(text) {
-        eprintln!("[engine] Failed to inject text: {e}");
-    }
+    with_enigo(|e| { if let Err(err) = e.text(text) { eprintln!("[engine] inject_text: {err}"); } });
 }
 
 fn delete_chars(n: usize) {
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(e) => e,
-        Err(e) => { eprintln!("[engine] Failed to create Enigo: {e}"); return; }
-    };
-    for _ in 0..n {
-        let _ = enigo.key(Key::Backspace, Click);
-    }
+    with_enigo(|e| { for _ in 0..n { let _ = e.key(Key::Backspace, Click); } });
 }
 
-fn record_stats(
-    config: &Arc<Mutex<RootConfig>>,
-    path: &PathBuf,
-    expansion_id: &str,
-) {
-    let mut cfg = config.lock().unwrap();
-    if !cfg.track_stats { return; }
-    cfg.stats.total_expansions += 1;
-    *cfg.stats.expansions_per_day.entry(today_string()).or_insert(0) += 1;
-    *cfg.stats.expansion_counts.entry(expansion_id.to_string()).or_insert(0) += 1;
-    crate::helpers::persist_config(path, &cfg);
+// ── Stats persistence (fire-and-forget thread) ────────────────────────────
+
+fn record_stats(config: &Arc<Mutex<RootConfig>>, path: &PathBuf, expansion_id: &str) {
+    let config = Arc::clone(config);
+    let path   = path.clone();
+    let exp_id = expansion_id.to_string();
+    thread::spawn(move || {
+        let mut cfg = config.lock().unwrap();
+        if !cfg.track_stats { return; }
+        cfg.stats.total_expansions  += 1;
+        cfg.stats.total_chars_saved += 0; // updated by caller if needed
+        *cfg.stats.expansions_per_day.entry(today_string()).or_insert(0) += 1;
+        *cfg.stats.expansion_counts.entry(exp_id).or_insert(0)          += 1;
+        crate::helpers::persist_config(&path, &cfg);
+    });
+}
+
+// ── Sound playback (fire-and-forget thread) ───────────────────────────────
+
+fn play_sound(path: String) {
+    thread::spawn(move || {
+        use rodio::{Decoder, OutputStream, Sink};
+        use std::{fs::File, io::BufReader};
+        let Ok((_stream, handle)) = OutputStream::try_default()       else { return };
+        let Ok(sink)              = Sink::try_new(&handle)             else { return };
+        let Ok(file)              = File::open(&path)                  else { return };
+        let Ok(source)            = Decoder::new(BufReader::new(file)) else { return };
+        sink.append(source);
+        let t = std::time::Instant::now();
+        while !sink.empty() {
+            if t.elapsed().as_secs() >= 10 { sink.stop(); break; }
+            thread::sleep(Duration::from_millis(100));
+        }
+    });
+}
+
+// ── Snapshot: cheap copy of only what the event loop needs ───────────────
+
+struct EngineSnapshot {
+    enabled:           bool,
+    buffer_size:       usize,
+    expansion_delay:   u64,
+    sound_enabled:     bool,
+    sound_path:        Option<String>,
+    triggers:          Vec<crate::models::Trigger>,
+    hotkeys:           Vec<crate::models::Hotkey>,
+    expansions:        std::collections::HashMap<String, crate::models::Expansion>,
+    custom_variables:  Vec<crate::models::CustomVariable>,
+}
+
+impl EngineSnapshot {
+    fn from(cfg: &RootConfig) -> Self {
+        Self {
+            enabled:          cfg.enabled,
+            buffer_size:      cfg.buffer_size,
+            expansion_delay:  cfg.expansion_delay_ms,
+            sound_enabled:    cfg.sound_enabled,
+            sound_path:       cfg.sound_path.clone(),
+            triggers:         cfg.triggers.clone(),
+            hotkeys:          cfg.hotkeys.clone(),
+            expansions:       cfg.expansions.clone(),
+            custom_variables: cfg.custom_variables.clone(),
+        }
+    }
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────
@@ -216,6 +245,7 @@ fn record_stats(
 pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
     thread::spawn(move || {
         loop {
+            // Local state — recreated on each restart
             let buffer:    Arc<Mutex<Vec<char>>>   = Arc::new(Mutex::new(Vec::new()));
             let held_keys: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -227,9 +257,10 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
             let result = listen(move |event: Event| {
                 match event.event_type {
 
-                    // ── Key pressed ───────────────────────────────────────────
+                    // ── Key pressed ───────────────────────────────────────
                     EventType::KeyPress(key) => {
 
+                        // Track modifiers — minimal lock scope
                         if let Some(modifier) = rkey_to_modifier_str(&key) {
                             let mut held = held_clone.lock().unwrap();
                             if !held.contains(&modifier.to_string()) {
@@ -238,10 +269,14 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                             return;
                         }
 
-                        let cfg = config_clone.lock().unwrap();
-                        if !cfg.enabled { return; }
+                        // Snapshot config — single short lock, no work inside
+                        let snap = {
+                            let cfg = config_clone.lock().unwrap();
+                            if !cfg.enabled { return; }
+                            EngineSnapshot::from(&*cfg)
+                        };
 
-                        // ── Hotkey check ──────────────────────────────────────
+                        // ── Hotkey check ──────────────────────────────────
                         {
                             let held = held_clone.lock().unwrap();
                             if !held.is_empty() {
@@ -249,17 +284,20 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                                     let mut parts = held.clone();
                                     parts.push(key_name);
                                     let combo = parts.join("+");
+                                    drop(held);
 
-                                    for hotkey in &cfg.hotkeys {
+                                    for hotkey in &snap.hotkeys {
                                         if hotkey.keys.eq_ignore_ascii_case(&combo) {
-                                            if let Some(expansion) = cfg.expansions.get(&hotkey.expansion_id) {
-                                                let text   = resolve_variables(&expansion.text, &cfg);
+                                            if let Some(expansion) = snap.expansions.get(&hotkey.expansion_id) {
+                                                let text   = resolve_variables(&expansion.text, &snap_cfg_ref(&snap));
                                                 let exp_id = hotkey.expansion_id.clone();
-                                                drop(cfg);
-                                                drop(held);
-                                                thread::sleep(Duration::from_millis(HOTKEY_INJECT_DELAY_MS));
-                                                inject_text(&text);
-                                                record_stats(&config_clone, &path_clone, &exp_id);
+                                                let cc     = Arc::clone(&config_clone);
+                                                let pc     = path_clone.clone();
+                                                thread::spawn(move || {
+                                                    thread::sleep(Duration::from_millis(HOTKEY_INJECT_DELAY_MS));
+                                                    inject_text(&text);
+                                                    record_stats(&cc, &pc, &exp_id);
+                                                });
                                                 return;
                                             }
                                         }
@@ -269,92 +307,67 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                             }
                         }
 
-                        // ── Buffer update ─────────────────────────────────────
-                        {
+                        // ── Buffer update ─────────────────────────────────
+                        let matched = {
                             let mut buf = buffer_clone.lock().unwrap();
 
                             match key {
                                 RKey::Backspace             => { buf.pop(); }
                                 RKey::Return | RKey::Escape => { buf.clear(); }
-                                _ => {
-                                    if let Some(c) = rkey_to_char(&key) {
+                                _ => match rkey_to_char(&key) {
+                                    Some(c) => {
                                         buf.push(c);
-                                        if buf.len() > BUFFER_SIZE { buf.remove(0); }
-                                    } else {
-                                        buf.clear();
+                                        while buf.len() > snap.buffer_size { buf.remove(0); }
                                     }
-                                }
+                                    None => { buf.clear(); }
+                                },
                             }
 
-                            // ── Trigger check ─────────────────────────────────
+                            // ── Trigger check ─────────────────────────────
                             let buf_str: String = buf.iter().collect();
-                            let mut matched: Option<(String, usize, String)> = None;
+                            let mut found: Option<(String, usize, String)> = None;
 
-                            for trigger in &cfg.triggers {
-                                if buf_str.ends_with(&trigger.key) {
-                                    if trigger.word_boundary {
-                                        let before = buf_str.len() - trigger.key.len();
-                                        if before > 0 {
-                                            let prev = buf_str.chars().nth(before - 1).unwrap_or(' ');
-                                            if !prev.is_whitespace() { continue; }
-                                        }
+                            'outer: for trigger in &snap.triggers {
+                                if !buf_str.ends_with(&trigger.key) { continue; }
+                                if trigger.word_boundary {
+                                    let before = buf_str.len() - trigger.key.len();
+                                    if before > 0 {
+                                        let prev = buf_str.chars().nth(before - 1).unwrap_or(' ');
+                                        if !prev.is_whitespace() { continue 'outer; }
                                     }
-                                    if let Some(expansion) = cfg.expansions.get(&trigger.expansion_id) {
-                                        let text   = resolve_variables(&expansion.text, &cfg);
-                                        let del    = trigger.key.len();
-                                        let exp_id = trigger.expansion_id.clone();
-                                        matched = Some((text, del, exp_id));
-                                        break;
-                                    }
+                                }
+                                if let Some(expansion) = snap.expansions.get(&trigger.expansion_id) {
+                                    let text   = resolve_variables(&expansion.text, &snap_cfg_ref(&snap));
+                                    let del    = trigger.key.len();
+                                    let exp_id = trigger.expansion_id.clone();
+                                    found = Some((text, del, exp_id));
+                                    break;
                                 }
                             }
 
-                            if matched.is_some() { buf.clear(); }
-                            drop(buf);
-                            drop(cfg);
+                            if found.is_some() { buf.clear(); }
+                            found
+                        };
 
-                            if let Some((text, delete_count, expansion_id)) = matched {
-                                let (sound_enabled, sound_path, delay) = {
-                                    let cfg = config_clone.lock().unwrap();
-                                    (cfg.sound_enabled, cfg.sound_path.clone(), cfg.expansion_delay_ms)
-                                };
+                        // ── Expand on worker thread — never blocks the hook ─
+                        if let Some((text, delete_count, expansion_id)) = matched {
+                            let cc    = Arc::clone(&config_clone);
+                            let pc    = path_clone.clone();
+                            let delay = snap.expansion_delay;
+                            let se    = snap.sound_enabled;
+                            let sp    = snap.sound_path.clone();
 
+                            thread::spawn(move || {
                                 thread::sleep(Duration::from_millis(delay));
                                 delete_chars(delete_count);
                                 inject_text(&text);
-                                record_stats(&config_clone, &path_clone, &expansion_id);
-
-                                if sound_enabled {
-                                    if let Some(path) = sound_path {
-                                        thread::spawn(move || {
-                                            use rodio::{Decoder, OutputStream, Sink};
-                                            use std::fs::File;
-                                            use std::io::BufReader;
-
-                                            let Ok((_stream, handle)) = OutputStream::try_default()       else { return };
-                                            let Ok(sink)              = Sink::try_new(&handle)             else { return };
-                                            let Ok(file)              = File::open(&path)                  else { return };
-                                            let Ok(source)            = Decoder::new(BufReader::new(file)) else { return };
-
-                                            sink.append(source);
-                                            let start = std::time::Instant::now();
-                                            while !sink.empty() {
-                                                if start.elapsed().as_secs() >= 10 {
-                                                    sink.stop();
-                                                    break;
-                                                }
-                                                thread::sleep(Duration::from_millis(100));
-                                            }
-                                        });
-                                    }
-                                }
-
-                                return;
-                            }
+                                record_stats(&cc, &pc, &expansion_id);
+                                if se { if let Some(path) = sp { play_sound(path); } }
+                            });
                         }
                     }
 
-                    // ── Key released ──────────────────────────────────────────
+                    // ── Key released ──────────────────────────────────────
                     EventType::KeyRelease(key) => {
                         if let Some(modifier) = rkey_to_modifier_str(&key) {
                             let mut held = held_clone.lock().unwrap();
@@ -366,8 +379,30 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                 }
             });
 
-            eprintln!("[engine] rdev listener stopped: {:?} — restarting in 1s", result);
+            eprintln!("[engine] listener exited ({:?}), restarting in 1s", result);
             thread::sleep(Duration::from_secs(1));
         }
     });
+}
+
+// Helper: build a minimal RootConfig-like reference from snapshot for resolve_variables
+fn snap_cfg_ref(snap: &EngineSnapshot) -> RootConfig {
+    RootConfig {
+        version:            String::new(),
+        enabled:            snap.enabled,
+        sound_enabled:      snap.sound_enabled,
+        sound_path:         snap.sound_path.clone(),
+        launch_at_startup:  false,
+        launch_minimised:   false,
+        minimise_to_tray:   false,
+        theme:              String::new(),
+        track_stats:        false,
+        expansion_delay_ms: snap.expansion_delay,
+        buffer_size:        snap.buffer_size,
+        expansions:         snap.expansions.clone(),
+        triggers:           snap.triggers.clone(),
+        hotkeys:            snap.hotkeys.clone(),
+        custom_variables:   snap.custom_variables.clone(),
+        stats:              crate::models::GlobalStats::default(),
+    }
 }

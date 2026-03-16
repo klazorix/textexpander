@@ -79,6 +79,7 @@ function EngineTab() {
   const [minimiseToTray, setMinimiseToTray] = useState(false)
   const [appVersion, setAppVersion] = useState("")
   const [expansionDelay, setExpansionDelay] = useState(325)
+  const [bufferSize, setBufferSize] = useState(16)
   const fileRef = useRef()
 
   useEffect(() => {
@@ -92,6 +93,7 @@ function EngineTab() {
       setMinimiseToTray(c.minimise_to_tray ?? false)
       setLaunchMinimised(c.launch_minimised ?? false)
       setExpansionDelay(c.expansion_delay_ms ?? 325)
+      setBufferSize(c.buffer_size ?? 16)
     })
   }, [])
 
@@ -155,6 +157,13 @@ function EngineTab() {
     await invoke('update_expansion_delay', { expansionDelayMs: num })
   }
 
+  const handleBufferSize = async (val) => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    const num = Math.max(1, Math.min(64, parseInt(val) || 16))
+    setBufferSize(num)
+    await invoke('update_buffer_size', { bufferSize: num })
+  }
+
   return (
     <div>
       <SectionLabel>Engine</SectionLabel>
@@ -173,20 +182,47 @@ function EngineTab() {
       <SectionLabel>Performance</SectionLabel>
       <Card>
         <SettingRow
-          label="Expansion Delay"
+          label={
+            <div className="flex items-center gap-2">
+              <span>Expansion Delay</span>
+              <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-md">
+                Low Impact
+              </span>
+            </div>
+          }
           description="If a trailing letter appears after expansions, increase this value to give your system more time to process the keystroke before expanding."
         >
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="0"
-              max="2000"
-              value={expansionDelay}
-              onChange={e => handleExpansionDelay(e.target.value)}
-              className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm text-center focus:outline-none focus:border-blue-500 transition-colors"
-            />
-            <span className="text-gray-500 text-sm">ms</span>
-          </div>
+          <select
+            value={expansionDelay}
+            onChange={e => handleExpansionDelay(e.target.value)}
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
+          >
+            {[250, 300, 350, 400, 450, 500, 550, 600].map(v => (
+              <option key={v} value={v}>{v}ms</option>
+            ))}
+          </select>
+        </SettingRow>
+
+        <SettingRow
+          label={
+            <div className="flex items-center gap-2">
+              <span>Buffer Size</span>
+              <span className="text-xs bg-orange-500/15 text-orange-300 px-2 py-0.5 rounded-md">
+                Medium Impact
+              </span>
+            </div>
+          }
+          description="Maximum number of characters tracked for trigger matching (indirectly sets the maximum trigger length)."
+        >
+          <select
+            value={bufferSize}
+            onChange={e => handleBufferSize(e.target.value)}
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
+          >
+            {[16, 24, 32, 64].map(v => (
+              <option key={v} value={v}>{v} chars</option>
+            ))}
+          </select>
         </SettingRow>
       </Card>
 

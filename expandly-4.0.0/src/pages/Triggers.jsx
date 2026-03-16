@@ -7,6 +7,12 @@ function Modal({ title, initial, snippets, onSave, onClose }) {
   const [key, setKey] = useState(initial?.key ?? '')
   const [expansionId, setExpansionId] = useState(initial?.expansion_id ?? '')
   const [wordBoundary, setWordBoundary] = useState(initial?.word_boundary ?? true)
+  const [maxKeyLength, setMaxKeyLength] = useState(16)
+
+  useEffect(() => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    invoke('get_config').then(c => setMaxKeyLength(c.buffer_size ?? 16))
+  }, [])
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
@@ -25,11 +31,11 @@ function Modal({ title, initial, snippets, onSave, onClose }) {
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors font-mono"
               placeholder="e.g. /hi"
               value={key}
-              maxLength={16}
+              maxLength={maxKeyLength}
               onChange={e => setKey(e.target.value)}
             />
-            <p className={`text-xs mt-1 text-right ${key.length >= 16 ? 'text-red-400' : 'text-gray-600'}`}>
-              {key.length}/16
+            <p className={`text-xs mt-1 text-right ${key.length >= maxKeyLength ? 'text-red-400' : 'text-gray-600'}`}>
+              {key.length}/{maxKeyLength}
             </p>
           </div>
 
