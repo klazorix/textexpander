@@ -84,6 +84,10 @@ pub struct RootConfig {
 
     #[serde(default = "default_track_stats")]
     pub track_stats: bool,
+
+    #[serde(default = "default_expansion_delay_ms")]
+    pub expansion_delay_ms: u64,
+    
 }
 
 fn default_enabled() -> bool {
@@ -96,6 +100,10 @@ fn default_theme() -> String {
 
 fn default_track_stats() -> bool {
     true
+}
+
+fn default_expansion_delay_ms() -> u64 {
+    325
 }
 
 impl Default for RootConfig {
@@ -121,6 +129,7 @@ impl Default for RootConfig {
         Self {
             version: String::new(),
             enabled: true,
+            expansion_delay_ms: 325,
 
             sound_enabled: false,
             sound_path: None,

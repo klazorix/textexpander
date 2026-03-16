@@ -325,7 +325,12 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                                 (cfg.sound_enabled, cfg.sound_path.clone())
                             };
 
-                            thread::sleep(Duration::from_millis(320));
+                            let delay = {
+                                let cfg = config_clone.lock().unwrap();
+                                cfg.expansion_delay_ms
+                            };
+                            thread::sleep(Duration::from_millis(delay));
+                            
                             delete_chars(delete_count);
                             inject_text(&text);
                             record_stats(&config_clone, &path_clone, &expansion_id);

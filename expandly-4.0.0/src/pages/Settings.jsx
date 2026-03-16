@@ -77,8 +77,8 @@ function EngineTab() {
   const [launchAtStartup, setLaunchAtStartup] = useState(false)
   const [launchMinimised, setLaunchMinimised] = useState(false)
   const [minimiseToTray, setMinimiseToTray] = useState(false)
-  const [showInTaskbar, setShowInTaskbar] = useState(false)
   const [appVersion, setAppVersion] = useState("")
+  const [expansionDelay, setExpansionDelay] = useState(325)
   const fileRef = useRef()
 
   useEffect(() => {
@@ -91,6 +91,7 @@ function EngineTab() {
       setLaunchAtStartup(c.launch_at_startup ?? false)
       setMinimiseToTray(c.minimise_to_tray ?? false)
       setLaunchMinimised(c.launch_minimised ?? false)
+      setExpansionDelay(c.expansion_delay_ms ?? 325)
     })
   }, [])
 
@@ -147,6 +148,13 @@ function EngineTab() {
     audio.play().catch(() => { })
   }
 
+  const handleExpansionDelay = async (val) => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    const num = Math.max(0, parseInt(val) || 0)
+    setExpansionDelay(num)
+    await invoke('update_expansion_delay', { expansionDelayMs: num })
+  }
+
   return (
     <div>
       <SectionLabel>Engine</SectionLabel>
@@ -160,6 +168,26 @@ function EngineTab() {
         <div className="py-3">
           <p className="text-xs text-gray-600">Expandly Engine {appVersion}</p>
         </div>
+      </Card>
+
+      <SectionLabel>Performance</SectionLabel>
+      <Card>
+        <SettingRow
+          label="Expansion Delay"
+          description="If a trailing letter appears after expansions, increase this value to give your system more time to process the keystroke before expanding."
+        >
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min="0"
+              max="2000"
+              value={expansionDelay}
+              onChange={e => handleExpansionDelay(e.target.value)}
+              className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm text-center focus:outline-none focus:border-blue-500 transition-colors"
+            />
+            <span className="text-gray-500 text-sm">ms</span>
+          </div>
+        </SettingRow>
       </Card>
 
       <SectionLabel>Expansion Sound</SectionLabel>

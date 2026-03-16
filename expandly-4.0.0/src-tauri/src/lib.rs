@@ -190,6 +190,18 @@ fn update_system_settings(
     Ok(())
 }
 
+#[tauri::command]
+fn update_expansion_delay(
+    expansion_delay_ms: u64,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.expansion_delay_ms = expansion_delay_ms;
+    persist_config(&config_path(&app)?, &config);
+    Ok(())
+}
+
 // ── Expansions ────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -513,6 +525,7 @@ pub fn run() {
             update_track_stats,
             reset_stats,
             close_splash,
+            update_expansion_delay,
         ])
         .run(tauri::generate_context!())
         .expect("error while running expandly");
