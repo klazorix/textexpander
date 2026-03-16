@@ -22,15 +22,14 @@
         "visible": false
       },
       {
+        "label": "splash",
         "title": "Expandly",
         "width": 400,
         "height": 200,
         "resizable": false,
-        "fullscreen": false,
         "decorations": false,
         "transparent": true,
         "center": true,
-        "label": "splash",
         "url": "splash.html"
       }
     ],
