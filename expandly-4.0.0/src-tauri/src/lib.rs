@@ -239,6 +239,9 @@ fn delete_expansion(id: String, state: State<'_, AppState>, app: tauri::AppHandl
 
 #[tauri::command]
 fn create_trigger(key: String, expansion_id: String, word_boundary: bool, state: State<'_, AppState>, app: tauri::AppHandle) -> Result<Trigger, String> {
+    if key.len() > 16 {
+        return Err("Trigger key cannot exceed 16 characters".to_string());
+    }
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     let trigger = Trigger { id: uuid::Uuid::new_v4().to_string(), key, expansion_id, word_boundary };
     config.triggers.push(trigger.clone());
@@ -248,6 +251,9 @@ fn create_trigger(key: String, expansion_id: String, word_boundary: bool, state:
 
 #[tauri::command]
 fn update_trigger(id: String, key: String, expansion_id: String, word_boundary: bool, state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+    if key.len() > 16 {
+        return Err("Trigger key cannot exceed 16 characters".to_string());
+    }
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     match config.triggers.iter_mut().find(|t| t.id == id) {
         Some(t) => { t.key = key; t.expansion_id = expansion_id; t.word_boundary = word_boundary; }

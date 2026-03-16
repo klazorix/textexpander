@@ -25,8 +25,12 @@ function Modal({ title, initial, snippets, onSave, onClose }) {
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors font-mono"
               placeholder="e.g. /hi"
               value={key}
+              maxLength={16}
               onChange={e => setKey(e.target.value)}
             />
+            <p className={`text-xs mt-1 text-right ${key.length >= 16 ? 'text-red-400' : 'text-gray-600'}`}>
+              {key.length}/16
+            </p>
           </div>
 
           <div>

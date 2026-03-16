@@ -18,7 +18,7 @@ use enigo::{
 
 use rdev::{listen, Event, EventType, Key as RKey};
 
-const BUFFER_SIZE: usize = 64;
+const BUFFER_SIZE: usize = 16;
 const HOTKEY_INJECT_DELAY_MS: u64 = 80;
 
 pub fn days_from_epoch_pub(z: i64) -> (i64, i64, i64) {
@@ -215,166 +215,159 @@ fn record_stats(
 
 pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
     thread::spawn(move || {
-        let buffer:    Arc<Mutex<Vec<char>>>   = Arc::new(Mutex::new(Vec::new()));
-        let held_keys: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        loop {
+            let buffer:    Arc<Mutex<Vec<char>>>   = Arc::new(Mutex::new(Vec::new()));
+            let held_keys: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
-        let buffer_clone = Arc::clone(&buffer);
-        let held_clone   = Arc::clone(&held_keys);
-        let config_clone = Arc::clone(&config);
-        let path_clone   = config_file_path.clone();
+            let buffer_clone = Arc::clone(&buffer);
+            let held_clone   = Arc::clone(&held_keys);
+            let config_clone = Arc::clone(&config);
+            let path_clone   = config_file_path.clone();
 
-        listen(move |event: Event| {
-            match event.event_type {
+            let result = listen(move |event: Event| {
+                match event.event_type {
 
-                // ── Key pressed ───────────────────────────────────────────
-                EventType::KeyPress(key) => {
+                    // ── Key pressed ───────────────────────────────────────────
+                    EventType::KeyPress(key) => {
 
-                    if let Some(modifier) = rkey_to_modifier_str(&key) {
-                        let mut held = held_clone.lock().unwrap();
-                        if !held.contains(&modifier.to_string()) {
-                            held.push(modifier.to_string());
-                        }
-                        return;
-                    }
-
-                    let cfg = config_clone.lock().unwrap();
-                    if !cfg.enabled { return; }
-
-                    // ── Hotkey check ──────────────────────────────────────
-                    {
-                        let held = held_clone.lock().unwrap();
-                        if !held.is_empty() {
-                            if let Some(key_name) = rkey_to_name(&key) {
-                                let mut parts = held.clone();
-                                parts.push(key_name);
-                                let combo = parts.join("+");
-
-                                for hotkey in &cfg.hotkeys {
-                                    if hotkey.keys.eq_ignore_ascii_case(&combo) {
-                                        if let Some(expansion) = cfg.expansions.get(&hotkey.expansion_id) {
-                                            let text        = resolve_variables(&expansion.text, &cfg);
-                                            let exp_id      = hotkey.expansion_id.clone();
-                                            let chars_saved = if text.len() > hotkey.keys.len() {
-                                                (text.len() - hotkey.keys.len()) as u64
-                                            } else { 0 };
-                                            drop(cfg);
-                                            drop(held);
-                                            thread::sleep(Duration::from_millis(HOTKEY_INJECT_DELAY_MS));
-                                            inject_text(&text);
-                                            record_stats(&config_clone, &path_clone, &exp_id);
-                                            return;
-                                        }
-                                    }
-                                }
+                        if let Some(modifier) = rkey_to_modifier_str(&key) {
+                            let mut held = held_clone.lock().unwrap();
+                            if !held.contains(&modifier.to_string()) {
+                                held.push(modifier.to_string());
                             }
                             return;
                         }
-                    }
 
-                    // ── Buffer update ─────────────────────────────────────
-                    {
-                        let mut buf = buffer_clone.lock().unwrap();
+                        let cfg = config_clone.lock().unwrap();
+                        if !cfg.enabled { return; }
 
-                        match key {
-                            RKey::Backspace             => { buf.pop(); }
-                            RKey::Return | RKey::Escape => { buf.clear(); }
-                            _ => {
-                                if let Some(c) = rkey_to_char(&key) {
-                                    buf.push(c);
-                                    if buf.len() > BUFFER_SIZE { buf.remove(0); }
-                                } else {
-                                    buf.clear();
-                                }
-                            }
-                        }
+                        // ── Hotkey check ──────────────────────────────────────
+                        {
+                            let held = held_clone.lock().unwrap();
+                            if !held.is_empty() {
+                                if let Some(key_name) = rkey_to_name(&key) {
+                                    let mut parts = held.clone();
+                                    parts.push(key_name);
+                                    let combo = parts.join("+");
 
-                        // ── Trigger check ─────────────────────────────────
-                        let buf_str: String = buf.iter().collect();
-                        let mut matched: Option<(String, usize, String)> = None;
-
-                        for trigger in &cfg.triggers {
-                            if buf_str.ends_with(&trigger.key) {
-                                if trigger.word_boundary {
-                                    let before = buf_str.len() - trigger.key.len();
-                                    if before > 0 {
-                                        let prev = buf_str.chars().nth(before - 1).unwrap_or(' ');
-                                        if !prev.is_whitespace() { continue; }
-                                    }
-                                }
-                                if let Some(expansion) = cfg.expansions.get(&trigger.expansion_id) {
-                                    let text   = resolve_variables(&expansion.text, &cfg);
-                                    let del    = trigger.key.len();
-                                    let exp_id = trigger.expansion_id.clone();
-                                    matched = Some((text, del, exp_id));
-                                    break;
-                                }
-                            }
-                        }
-
-                        if matched.is_some() { buf.clear(); }
-                        drop(buf);
-                        drop(cfg);
-
-                        if let Some((text, delete_count, expansion_id)) = matched {
-                            let chars_saved = if text.len() > delete_count {
-                                (text.len() - delete_count) as u64
-                            } else { 0 };
-
-                            let (sound_enabled, sound_path) = {
-                                let cfg = config_clone.lock().unwrap();
-                                (cfg.sound_enabled, cfg.sound_path.clone())
-                            };
-
-                            let delay = {
-                                let cfg = config_clone.lock().unwrap();
-                                cfg.expansion_delay_ms
-                            };
-                            thread::sleep(Duration::from_millis(delay));
-                            
-                            delete_chars(delete_count);
-                            inject_text(&text);
-                            record_stats(&config_clone, &path_clone, &expansion_id);
-
-                            if sound_enabled {
-                                if let Some(path) = sound_path {
-                                    thread::spawn(move || {
-                                        use rodio::{Decoder, OutputStream, Sink};
-                                        use std::fs::File;
-                                        use std::io::BufReader;
-
-                                        let Ok((_stream, handle)) = OutputStream::try_default()       else { return };
-                                        let Ok(sink)              = Sink::try_new(&handle)             else { return };
-                                        let Ok(file)              = File::open(&path)                  else { return };
-                                        let Ok(source)            = Decoder::new(BufReader::new(file)) else { return };
-
-                                        sink.append(source);
-                                        let start = std::time::Instant::now();
-                                        while !sink.empty() {
-                                            if start.elapsed().as_secs() >= 10 {
-                                                sink.stop();
-                                                break;
+                                    for hotkey in &cfg.hotkeys {
+                                        if hotkey.keys.eq_ignore_ascii_case(&combo) {
+                                            if let Some(expansion) = cfg.expansions.get(&hotkey.expansion_id) {
+                                                let text   = resolve_variables(&expansion.text, &cfg);
+                                                let exp_id = hotkey.expansion_id.clone();
+                                                drop(cfg);
+                                                drop(held);
+                                                thread::sleep(Duration::from_millis(HOTKEY_INJECT_DELAY_MS));
+                                                inject_text(&text);
+                                                record_stats(&config_clone, &path_clone, &exp_id);
+                                                return;
                                             }
-                                            thread::sleep(Duration::from_millis(100));
                                         }
-                                    });
+                                    }
+                                }
+                                return;
+                            }
+                        }
+
+                        // ── Buffer update ─────────────────────────────────────
+                        {
+                            let mut buf = buffer_clone.lock().unwrap();
+
+                            match key {
+                                RKey::Backspace             => { buf.pop(); }
+                                RKey::Return | RKey::Escape => { buf.clear(); }
+                                _ => {
+                                    if let Some(c) = rkey_to_char(&key) {
+                                        buf.push(c);
+                                        if buf.len() > BUFFER_SIZE { buf.remove(0); }
+                                    } else {
+                                        buf.clear();
+                                    }
                                 }
                             }
 
-                            return;
+                            // ── Trigger check ─────────────────────────────────
+                            let buf_str: String = buf.iter().collect();
+                            let mut matched: Option<(String, usize, String)> = None;
+
+                            for trigger in &cfg.triggers {
+                                if buf_str.ends_with(&trigger.key) {
+                                    if trigger.word_boundary {
+                                        let before = buf_str.len() - trigger.key.len();
+                                        if before > 0 {
+                                            let prev = buf_str.chars().nth(before - 1).unwrap_or(' ');
+                                            if !prev.is_whitespace() { continue; }
+                                        }
+                                    }
+                                    if let Some(expansion) = cfg.expansions.get(&trigger.expansion_id) {
+                                        let text   = resolve_variables(&expansion.text, &cfg);
+                                        let del    = trigger.key.len();
+                                        let exp_id = trigger.expansion_id.clone();
+                                        matched = Some((text, del, exp_id));
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if matched.is_some() { buf.clear(); }
+                            drop(buf);
+                            drop(cfg);
+
+                            if let Some((text, delete_count, expansion_id)) = matched {
+                                let (sound_enabled, sound_path, delay) = {
+                                    let cfg = config_clone.lock().unwrap();
+                                    (cfg.sound_enabled, cfg.sound_path.clone(), cfg.expansion_delay_ms)
+                                };
+
+                                thread::sleep(Duration::from_millis(delay));
+                                delete_chars(delete_count);
+                                inject_text(&text);
+                                record_stats(&config_clone, &path_clone, &expansion_id);
+
+                                if sound_enabled {
+                                    if let Some(path) = sound_path {
+                                        thread::spawn(move || {
+                                            use rodio::{Decoder, OutputStream, Sink};
+                                            use std::fs::File;
+                                            use std::io::BufReader;
+
+                                            let Ok((_stream, handle)) = OutputStream::try_default()       else { return };
+                                            let Ok(sink)              = Sink::try_new(&handle)             else { return };
+                                            let Ok(file)              = File::open(&path)                  else { return };
+                                            let Ok(source)            = Decoder::new(BufReader::new(file)) else { return };
+
+                                            sink.append(source);
+                                            let start = std::time::Instant::now();
+                                            while !sink.empty() {
+                                                if start.elapsed().as_secs() >= 10 {
+                                                    sink.stop();
+                                                    break;
+                                                }
+                                                thread::sleep(Duration::from_millis(100));
+                                            }
+                                        });
+                                    }
+                                }
+
+                                return;
+                            }
                         }
                     }
-                }
 
-                // ── Key released ──────────────────────────────────────────
-                EventType::KeyRelease(key) => {
-                    if let Some(modifier) = rkey_to_modifier_str(&key) {
-                        let mut held = held_clone.lock().unwrap();
-                        held.retain(|k| k != modifier);
+                    // ── Key released ──────────────────────────────────────────
+                    EventType::KeyRelease(key) => {
+                        if let Some(modifier) = rkey_to_modifier_str(&key) {
+                            let mut held = held_clone.lock().unwrap();
+                            held.retain(|k| k != modifier);
+                        }
                     }
-                }
 
-                _ => {}
-            }
-        }).unwrap_or_else(|e| eprintln!("[engine] rdev listen error: {:?}", e));
+                    _ => {}
+                }
+            });
+
+            eprintln!("[engine] rdev listener stopped: {:?} — restarting in 1s", result);
+            thread::sleep(Duration::from_secs(1));
+        }
     });
 }
