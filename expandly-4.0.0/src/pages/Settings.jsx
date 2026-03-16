@@ -7,8 +7,8 @@ const { invoke } = window.__TAURI_INTERNALS__
 const GITHUB_REPO = 'klazorix/textexpander'
 
 const tabs = [
-  { id: 'engine', label: 'Engine', icon: SettingsIcon },
-  { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'engine', label: 'System', icon: SettingsIcon },
+  { id: 'appearance', label: 'Customise', icon: Palette },
   { id: 'data', label: 'Data', icon: Database },
   { id: 'updates', label: 'Updates', icon: RefreshCw },
 ]
@@ -71,9 +71,6 @@ function Card({ children }) {
 function EngineTab() {
   const [config, setConfig] = useState(null)
   const [enabled, setEnabled] = useState(false)
-  const [soundEnabled, setSoundEnabled] = useState(false)
-  const [soundPath, setSoundPath] = useState(null)
-  const [soundName, setSoundName] = useState(null)
   const [launchAtStartup, setLaunchAtStartup] = useState(false)
   const [launchMinimised, setLaunchMinimised] = useState(false)
   const [minimiseToTray, setMinimiseToTray] = useState(false)
@@ -86,9 +83,6 @@ function EngineTab() {
     invoke('get_config').then(c => {
       setConfig(c)
       setEnabled(c.enabled)
-      setSoundEnabled(c.sound_enabled)
-      setSoundPath(c.sound_path ?? null)
-      if (c.sound_path) setSoundName(c.sound_path.split(/[\\/]/).pop())
       setLaunchAtStartup(c.launch_at_startup ?? false)
       setMinimiseToTray(c.minimise_to_tray ?? false)
       setLaunchMinimised(c.launch_minimised ?? false)
@@ -122,33 +116,9 @@ function EngineTab() {
   }
 
   const handleToggleEngine = (val) => { setEnabled(val); saveEngine({ enabled: val }) }
-  const handleToggleSound = (val) => { setSoundEnabled(val); saveEngine({ soundEnabled: val }) }
   const handleStartup = (val) => { setLaunchAtStartup(val); saveSystem({ launchAtStartup: val }) }
   const handleTray = (val) => { setMinimiseToTray(val); saveSystem({ minimiseToTray: val }) }
   const handleLaunchMinimised = (val) => { setLaunchMinimised(val); saveSystem({ launchMinimised: val }) }
-
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    const buffer = await file.arrayBuffer()
-    const bytes = Array.from(new Uint8Array(buffer))
-    const path = await invoke('save_sound_file', { fileName: file.name, fileData: bytes })
-    setSoundPath(path)
-    setSoundName(file.name)
-    saveEngine({ soundPath: path })
-  }
-
-  const handleRemoveSound = () => {
-    setSoundPath(null)
-    setSoundName(null)
-    saveEngine({ soundPath: null })
-  }
-
-  const previewSound = () => {
-    if (!soundPath) return
-    const audio = new Audio(`asset://localhost/${soundPath.replace(/\\/g, '/')}`)
-    audio.play().catch(() => { })
-  }
 
   const handleExpansionDelay = async (val) => {
     const { invoke } = window.__TAURI_INTERNALS__
@@ -226,6 +196,92 @@ function EngineTab() {
         </SettingRow>
       </Card>
 
+      <SectionLabel>Startup</SectionLabel>
+      <Card>
+        <SettingRow
+          label="Launch at Login"
+          description="Start Expandly automatically when you log in"
+        >
+          <Toggle value={launchAtStartup} onChange={handleStartup} />
+        </SettingRow>
+        <SettingRow
+          label="Launch Minimised"
+          description="Start Expandly minimised to the system tray"
+        >
+          <Toggle value={launchMinimised} onChange={handleLaunchMinimised} />
+        </SettingRow>
+        <SettingRow
+          label="Minimise to Tray on Close"
+          description="Keep Expandly running in the system tray when the window is closed"
+        >
+          <Toggle value={minimiseToTray} onChange={handleTray} />
+        </SettingRow>
+      </Card>
+    </div>
+  )
+}
+
+function AppearanceTab() {
+  const [config, setConfig] = useState(null)
+  const [soundEnabled, setSoundEnabled] = useState(false)
+  const [soundPath, setSoundPath] = useState(null)
+  const [soundName, setSoundName] = useState(null)
+  const fileRef = useRef()
+
+  useEffect(() => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    invoke('get_config').then(c => {
+      setConfig(c)
+      setSoundEnabled(c.sound_enabled)
+      setSoundPath(c.sound_path ?? null)
+      if (c.sound_path) setSoundName(c.sound_path.split(/[\\/]/).pop())
+    })
+  }, [])
+
+  const saveEngine = async (overrides = {}) => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    await invoke('update_engine_settings', {
+      enabled: config?.enabled ?? true,
+      soundEnabled: overrides.soundEnabled ?? soundEnabled,
+      soundPath: overrides.soundPath !== undefined ? overrides.soundPath : soundPath,
+    })
+  }
+
+  const handleToggleSound = (val) => { setSoundEnabled(val); saveEngine({ soundEnabled: val }) }
+
+  const handleFileUpload = async (e) => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    const file = e.target.files[0]
+    if (!file) return
+    const buffer = await file.arrayBuffer()
+    const bytes = Array.from(new Uint8Array(buffer))
+    const path = await invoke('save_sound_file', { fileName: file.name, fileData: bytes })
+    setSoundPath(path)
+    setSoundName(file.name)
+    saveEngine({ soundPath: path })
+  }
+
+  const handleRemoveSound = () => {
+    setSoundPath(null)
+    setSoundName(null)
+    saveEngine({ soundPath: null })
+  }
+
+  const previewSound = () => {
+    if (!soundPath) return
+    const audio = new Audio(`asset://localhost/${soundPath.replace(/\\/g, '/')}`)
+    audio.play().catch(() => { })
+  }
+
+  return (
+    <div>
+      <SectionLabel>Themes</SectionLabel>
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl px-6 py-8 flex flex-col items-center text-center gap-3 mb-4">
+        <Palette size={28} className="text-gray-600" />
+        <p className="text-white font-medium">Themes coming soon</p>
+        <p className="text-gray-500 text-sm">Theme support will be added in a future update once the app is complete.</p>
+      </div>
+
       <SectionLabel>Expansion Sound</SectionLabel>
       <Card>
         <SettingRow
@@ -276,38 +332,6 @@ function EngineTab() {
           </SettingRow>
         )}
       </Card>
-
-      <SectionLabel>Startup and System</SectionLabel>
-      <Card>
-        <SettingRow
-          label="Launch at Startup"
-          description="Start Expandly automatically when you log in"
-        >
-          <Toggle value={launchAtStartup} onChange={handleStartup} />
-        </SettingRow>
-        <SettingRow
-          label="Launch Minimised"
-          description="Start Expandly minimised to the system tray"
-        >
-          <Toggle value={launchMinimised} onChange={handleLaunchMinimised} />
-        </SettingRow>
-        <SettingRow
-          label="Minimise to Tray on Close"
-          description="Keep Expandly running in the system tray when the window is closed"
-        >
-          <Toggle value={minimiseToTray} onChange={handleTray} />
-        </SettingRow>
-      </Card>
-    </div>
-  )
-}
-
-function AppearanceTab() {
-  return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl px-6 py-8 flex flex-col items-center text-center gap-3">
-      <Palette size={28} className="text-gray-600" />
-      <p className="text-white font-medium">Themes coming soon</p>
-      <p className="text-gray-500 text-sm">Theme support will be added in a future update once the app is complete.</p>
     </div>
   )
 }
