@@ -29,20 +29,45 @@ pub fn days_from_epoch_pub(z: i64) -> (i64, i64, i64) {
 // ── Variable resolution ───────────────────────────────────────────────────
 
 fn resolve_variables(text: &str, config: &RootConfig) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let secs             = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let days_since_epoch = secs / 86400;
+    let secs_today       = secs % 86400;
+
     let now = chrono_now();
     let mut result = text.to_string();
+
     result = result.replace("{date}",     &now.date);
     result = result.replace("{time}",     &now.time);
     result = result.replace("{datetime}", &format!("{} {}", now.date, now.time));
     result = result.replace("{day}",      &now.day);
     result = result.replace("{month}",    &now.month);
     result = result.replace("{year}",     &now.year);
+    result = result.replace("{hour}",     &format!("{:02}", secs_today / 3600));
+    result = result.replace("{minute}",   &format!("{:02}", (secs_today % 3600) / 60));
+
+    let yesterday = { let (y, m, d) = days_from_epoch(days_since_epoch as i64 - 1); format!("{:02}/{:02}/{}", d, m, y) };
+    let tomorrow  = { let (y, m, d) = days_from_epoch(days_since_epoch as i64 + 1); format!("{:02}/{:02}/{}", d, m, y) };
+    result = result.replace("{yesterday}", &yesterday);
+    result = result.replace("{tomorrow}",  &tomorrow);
+
+    let greeting = match secs_today / 3600 {
+        5..=11  => "Good morning",
+        12..=17 => "Good afternoon",
+        18..=21 => "Good evening",
+        _       => "Good night",
+    };
+    result = result.replace("{greeting}", greeting);
+
     if result.contains("{clipboard}") {
         result = result.replace("{clipboard}", &get_clipboard().unwrap_or_default());
     }
+
     for var in &config.custom_variables {
         result = result.replace(&format!("{{{}}}", var.name), &var.value);
     }
+
     result
 }
 
@@ -342,7 +367,7 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                             let mut found: Option<(String, usize, String)> = None;
 
                             'outer: for trigger in &snap.triggers {
-                                if !buf_str.ends_with(&trigger.key) { continue; }
+                                if !buf_str.to_lowercase().ends_with(&trigger.key.to_lowercase()) { continue; }
                                 if trigger.word_boundary {
                                     let before = buf_str.len() - trigger.key.len();
                                     if before > 0 {

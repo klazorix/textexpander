@@ -152,7 +152,7 @@ export default function Triggers() {
               <span className="text-gray-500 text-sm">→</span>
               <span className="text-white text-sm truncate">{snippetName(t.expansion_id)}</span>
               {t.word_boundary && (
-                <span className="text-xs text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full shrink-0">word boundary</span>
+                <span className="text-xs text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full shrink-0">Word Boundary</span>
               )}
             </div>
             <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
