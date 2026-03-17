@@ -68,6 +68,105 @@ function Card({ children }) {
   )
 }
 
+function AdvancedModal({ onClose }) {
+  const [expansionDelay, setExpansionDelay] = useState(325)
+  const [hotkeyDelay, setHotkeyDelay] = useState(80)
+
+  useEffect(() => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    invoke('get_config').then(c => {
+      setExpansionDelay(c.expansion_delay_ms ?? 325)
+      setHotkeyDelay(c.hotkey_delay_ms ?? 80)
+    })
+  }, [])
+
+  const save = async (overrides = {}) => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    await invoke('update_expansion_delay', { expansionDelayMs: overrides.expansionDelayMs ?? expansionDelay })
+    await invoke('update_performance_settings', {
+      hotkeyDelayMs: overrides.hotkeyDelayMs ?? hotkeyDelay,
+      engineRestartDelayMs: 1000,
+      clearBufferOnSwitch: true,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-6">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+          <div>
+            <h2 className="text-white font-semibold">Advanced Settings</h2>
+            <p className="text-gray-500 text-xs mt-0.5">Debugging and advanced performance settings.</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="px-6 py-4">
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 mb-6 flex items-center justify-center gap-3">
+            <AlertCircle size={15} className="text-amber-400 shrink-0" />
+            <p className="text-amber-300 text-xs">Only users who fully understand the potential impact should modify these settings.</p>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl px-6">
+            <SettingRow
+              label="Expansion Delay"
+              description="Time in ms between keystroke deletion and text injection."
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="2000"
+                  value={expansionDelay}
+                  onChange={e => {
+                    const val = Math.max(0, parseInt(e.target.value) || 0)
+                    setExpansionDelay(val)
+                    save({ expansionDelayMs: val })
+                  }}
+                  className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm text-center focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <span className="text-gray-500 text-sm">ms</span>
+              </div>
+            </SettingRow>
+
+            <SettingRow
+              label="Hotkey Inject Delay"
+              description="Time in ms to wait after a hotkey is pressed before pasting."
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="2000"
+                  value={hotkeyDelay}
+                  onChange={e => {
+                    const val = Math.max(0, parseInt(e.target.value) || 0)
+                    setHotkeyDelay(val)
+                    save({ hotkeyDelayMs: val })
+                  }}
+                  className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm text-center focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <span className="text-gray-500 text-sm">ms</span>
+              </div>
+            </SettingRow>
+          </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-800">
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-white text-sm transition-colors"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function EngineTab() {
   const [config, setConfig] = useState(null)
   const [enabled, setEnabled] = useState(false)
@@ -79,6 +178,7 @@ function EngineTab() {
   const [bufferSize, setBufferSize] = useState(16)
   const [hotkeyDelay, setHotkeyDelay] = useState(80)
   const [engineRestartDelay, setEngineRestartDelay] = useState(1000)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [clearBufferOnSwitch, setClearBufferOnSwitch] = useState(true)
   const fileRef = useRef()
 
@@ -92,7 +192,6 @@ function EngineTab() {
       setExpansionDelay(c.expansion_delay_ms ?? 325)
       setBufferSize(c.buffer_size ?? 16)
       setHotkeyDelay(c.hotkey_delay_ms ?? 80)
-      setEngineRestartDelay(c.engine_restart_delay_ms ?? 1000)
       setClearBufferOnSwitch(c.clear_buffer_on_switch ?? true)
     })
   }, [])
@@ -188,27 +287,6 @@ function EngineTab() {
 
       <SectionLabel>Performance</SectionLabel>
       <Card>
-        <SettingRow
-          label={
-            <div className="flex items-center gap-2">
-              <span>Expansion Delay</span>
-              <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-md">
-                Low Impact
-              </span>
-            </div>
-          }
-          description="If a trailing letter appears after expansions, increase this value to give your system more time to process the keystroke before expanding."
-        >
-          <select
-            value={expansionDelay}
-            onChange={e => handleExpansionDelay(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
-          >
-            {[250, 300, 350, 400, 450, 500, 550, 600].map(v => (
-              <option key={v} value={v}>{v}ms</option>
-            ))}
-          </select>
-        </SettingRow>
 
         <SettingRow
           label={
@@ -235,58 +313,6 @@ function EngineTab() {
         <SettingRow
           label={
             <div className="flex items-center gap-2">
-              <span>Hotkey Insert Delay</span>
-              <span className="text-xs bg-orange-500/15 text-orange-300 px-2 py-0.5 rounded-md">
-                Medium Impact
-              </span>
-            </div>
-          }
-          description="Time to wait after a hotkey is pressed before pasting the snippet."
-        >
-          <select
-            value={hotkeyDelay}
-            onChange={e => {
-              const val = parseInt(e.target.value)
-              setHotkeyDelay(val)
-              handlePerformance({ hotkeyDelayMs: val })
-            }}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
-          >
-            {[40, 60, 80, 100, 120, 150, 200].map(v => (
-              <option key={v} value={v}>{v}ms</option>
-            ))}
-          </select>
-        </SettingRow>
-
-        <SettingRow
-          label={
-            <div className="flex items-center gap-2">
-              <span>Engine Restart Delay</span>
-              <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-md">
-                Low Impact
-              </span>
-            </div>
-          }
-          description="How long to wait before restarting the engine if it stops responding."
-        >
-          <select
-            value={engineRestartDelay}
-            onChange={e => {
-              const val = parseInt(e.target.value)
-              setEngineRestartDelay(val)
-              handlePerformance({ engineRestartDelayMs: val })
-            }}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
-          >
-            {[500, 1000, 2000, 3000, 5000].map(v => (
-              <option key={v} value={v}>{v}ms</option>
-            ))}
-          </select>
-        </SettingRow>
-
-        <SettingRow
-          label={
-            <div className="flex items-center gap-2">
               <span>Clear Buffer on Window Switch</span>
               <span className="text-xs bg-red-500/15 text-red-300 px-2 py-0.5 rounded-md">
                 High Impact
@@ -304,6 +330,23 @@ function EngineTab() {
           />
         </SettingRow>
       </Card>
+
+      <SectionLabel>Advanced</SectionLabel>
+      <Card>
+        <SettingRow
+          label="Advanced Settings"
+          description="Debugging and advanced performance settings."
+        >
+          <button
+            onClick={() => setShowAdvanced(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white text-sm transition-colors"
+          >
+            Open
+          </button>
+        </SettingRow>
+      </Card>
+
+      {showAdvanced && <AdvancedModal onClose={() => setShowAdvanced(false)} />}
     </div>
   )
 }

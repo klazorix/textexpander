@@ -215,7 +215,6 @@ struct EngineSnapshot {
     buffer_size:            usize,
     expansion_delay:        u64,
     hotkey_delay:           u64,
-    engine_restart_delay:   u64,
     clear_buffer_on_switch: bool,
     sound_enabled:          bool,
     sound_path:             Option<String>,
@@ -232,7 +231,6 @@ impl EngineSnapshot {
             buffer_size:            cfg.buffer_size,
             expansion_delay:        cfg.expansion_delay_ms,
             hotkey_delay:           cfg.hotkey_delay_ms,
-            engine_restart_delay:   cfg.engine_restart_delay_ms,
             clear_buffer_on_switch: cfg.clear_buffer_on_switch,
             sound_enabled:          cfg.sound_enabled,
             sound_path:             cfg.sound_path.clone(),
@@ -257,11 +255,7 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
             let config_clone = Arc::clone(&config);
             let path_clone   = config_file_path.clone();
 
-            // Read restart delay before entering listen (can't access snap inside loop level)
-            let restart_delay = {
-                let cfg = config.lock().unwrap();
-                cfg.engine_restart_delay_ms
-            };
+            let restart_delay: u64 = 1000;
 
             let result = listen(move |event: Event| {
                 match event.event_type {
@@ -420,7 +414,6 @@ fn snap_cfg_ref(snap: &EngineSnapshot) -> RootConfig {
         expansion_delay_ms:     snap.expansion_delay,
         buffer_size:            snap.buffer_size,
         hotkey_delay_ms:        snap.hotkey_delay,
-        engine_restart_delay_ms: snap.engine_restart_delay,
         clear_buffer_on_switch: snap.clear_buffer_on_switch,
         expansions:             snap.expansions.clone(),
         triggers:               snap.triggers.clone(),
