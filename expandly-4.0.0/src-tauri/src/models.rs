@@ -114,24 +114,31 @@ impl Default for RootConfig {
     fn default() -> Self {
         let exp1_id = uuid::Uuid::new_v4().to_string();
         let exp2_id = uuid::Uuid::new_v4().to_string();
+        let exp3_id = uuid::Uuid::new_v4().to_string();
         let trigger1_id = uuid::Uuid::new_v4().to_string();
         let trigger2_id = uuid::Uuid::new_v4().to_string();
+        let trigger3_id = uuid::Uuid::new_v4().to_string();
         let variable_id = uuid::Uuid::new_v4().to_string();
 
         let mut expansions = HashMap::new();
         expansions.insert(exp1_id.clone(), Expansion {
             id: exp1_id.clone(),
             name: "Welcome to Expandly".to_string(),
-            text: "Welcome to Expandly {version}! This is your first snippet. Try editing me or creating your own!".to_string(),
+            text: "{greeting}, welcome to Expandly {version}! This is your first snippet. Try editing me or creating your own!".to_string(),
         });
         expansions.insert(exp2_id.clone(), Expansion {
             id: exp2_id.clone(),
             name: "Current Date & Time".to_string(),
             text: "The date today is {date} and the time is {time}.".to_string(),
         });
+        expansions.insert(exp3_id.clone(), Expansion {
+            id: exp3_id.clone(),
+            name: "Expandly Assistance".to_string(),
+            text: "Need help with Expandly? Check out the documentation at https://github.com/klazorix/expandly/wiki.".to_string(),
+        });
 
         Self {
-            version: String::new(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
 
             enabled: true,
 
@@ -162,6 +169,12 @@ impl Default for RootConfig {
                     id: trigger2_id,
                     key: "/time".to_string(),
                     expansion_id: exp2_id,
+                    word_boundary: true,
+                },
+                Trigger {
+                    id: trigger3_id,
+                    key: "/help".to_string(),
+                    expansion_id: exp3_id,
                     word_boundary: true,
                 },
             ],
