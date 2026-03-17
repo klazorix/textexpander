@@ -148,7 +148,7 @@ impl Default for RootConfig {
             clear_buffer_on_switch: true,
 
             sound_enabled: false,
-            sound_path: None,
+            sound_path: Some("https://cdn.klazorix.com/expandly/default_sound.mp3".to_string()),
 
             launch_at_startup: false,
             launch_minimised: false,

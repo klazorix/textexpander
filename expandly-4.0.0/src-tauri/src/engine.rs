@@ -21,6 +21,7 @@ use std::{
 
 use enigo::{Direction::Click, Enigo, Key, Keyboard, Settings};
 use rdev::{listen, Event, EventType, Key as RKey};
+use std::io::Read;
 
 pub fn days_from_epoch_pub(z: i64) -> (i64, i64, i64) {
     days_from_epoch(z)
@@ -219,12 +220,27 @@ fn record_stats(config: &Arc<Mutex<RootConfig>>, path: &PathBuf, expansion_id: &
 fn play_sound(path: String) {
     thread::spawn(move || {
         use rodio::{Decoder, OutputStream, Sink};
-        use std::{fs::File, io::BufReader};
-        let Ok((_stream, handle)) = OutputStream::try_default()       else { return };
-        let Ok(sink)              = Sink::try_new(&handle)             else { return };
-        let Ok(file)              = File::open(&path)                  else { return };
-        let Ok(source)            = Decoder::new(BufReader::new(file)) else { return };
-        sink.append(source);
+        use std::io::BufReader;
+
+        let Ok((_stream, handle)) = OutputStream::try_default() else { return };
+        let Ok(sink)              = Sink::try_new(&handle)       else { return };
+
+        // Check if path is a URL
+        if path.starts_with("http://") || path.starts_with("https://") {
+            use std::io::Cursor;
+            let Ok(response) = ureq::get(&path).call() else { return };
+            let mut bytes = Vec::new();
+            let Ok(_) = response.into_reader().read_to_end(&mut bytes) else { return };
+            let cursor = Cursor::new(bytes);
+            let Ok(source) = Decoder::new(BufReader::new(cursor)) else { return };
+            sink.append(source);
+        } else {
+            use std::fs::File;
+            let Ok(file)   = File::open(&path)                  else { return };
+            let Ok(source) = Decoder::new(BufReader::new(file)) else { return };
+            sink.append(source);
+        }
+
         let t = std::time::Instant::now();
         while !sink.empty() {
             if t.elapsed().as_secs() >= 10 { sink.stop(); break; }
