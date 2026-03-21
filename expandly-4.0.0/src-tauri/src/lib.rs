@@ -1,15 +1,15 @@
 mod models;
 mod engine;
-mod helpers;
 mod commands;
+mod logger;
 
 use std::sync::{Arc, Mutex};
-use std::fs;
 use std::path::PathBuf;
 
 use tauri::Manager;
 
 use models::RootConfig;
+use logger::{LogLevel, SharedLogger, make_logger, purge_old_logs};
 use commands::*;
 
 pub struct AppState {
@@ -69,10 +69,24 @@ pub fn run() {
         ))
         .setup(|app| {
             let config = load_or_create_config(&app.handle());
+            let (config, conn) = load_or_create_config(&app.handle());
+
+            // Set up logger
+            let app_data = data_dir(&app.handle()).unwrap_or_default();
+            purge_old_logs(&app_data);
+            let log = make_logger(
+                config.debug_enabled,
+                LogLevel::from_str(&config.debug_level),
+                app_data,
+            );
+            log.lock().unwrap().verbose("[startup] Expandly starting up");
+
             let config = Arc::new(Mutex::new(config));
             let path = config_path(&app.handle()).unwrap_or_default();
 
             engine::start(Arc::clone(&config), path);
+            // Engine gets config, db, and logger
+            engine::start(Arc::clone(&config), Arc::clone(&db), Arc::clone(&log));
 
             let (minimise_to_tray, launch_minimised) = {
                 let cfg = config.lock().unwrap();
@@ -80,6 +94,7 @@ pub fn run() {
             };
 
             app.manage(AppState { config });
+            app.manage(AppState { config, db, logger: log });
 
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
             use tauri::menu::{Menu, MenuItem};
@@ -168,8 +183,8 @@ pub fn run() {
             settings::update_expansion_delay,
             settings::update_buffer_size,
             settings::update_performance_settings,
+            settings::update_debug_settings,
             // stats
-            stats::record_expansion,
             stats::update_track_stats,
             stats::reset_stats,
             // system
@@ -180,4 +195,5 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running expandly");
+}
 }

@@ -70,7 +70,7 @@ function AdvancedModal({ onClose }) {
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
           <div>
             <h2 className="text-white font-semibold">Advanced Settings</h2>
-            <p className="text-gray-500 text-xs mt-0.5">Debugging and advanced performance settings.</p>
+            <p className="text-gray-500 text-xs mt-0.5">Fine-tune expansion and hotkey injection delays.</p>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
             <X size={20} />
@@ -154,6 +154,8 @@ function EngineTab() {
   const [appVersion, setAppVersion] = useState('')
   const [bufferSize, setBufferSize] = useState(16)
   const [clearBufferOnSwitch, setClearBufferOnSwitch] = useState(true)
+  const [debugEnabled, setDebugEnabled] = useState(false)
+  const [debugLevel, setDebugLevel] = useState('errors')
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   useEffect(() => {
@@ -164,6 +166,8 @@ function EngineTab() {
     setLaunchMinimised(config.launch_minimised ?? false)
     setBufferSize(config.buffer_size ?? 16)
     setClearBufferOnSwitch(config.clear_buffer_on_switch ?? true)
+    setDebugEnabled(config.debug_enabled ?? false)
+    setDebugLevel(config.debug_level ?? 'errors')
   }, [config])
 
   useEffect(() => {
@@ -182,6 +186,12 @@ function EngineTab() {
       launchAtStartup: overrides.launchAtStartup ?? launchAtStartup,
       launchMinimised: overrides.launchMinimised ?? launchMinimised,
       minimiseToTray: overrides.minimiseToTray ?? minimiseToTray,
+    })
+
+  const saveDebug = (overrides = {}) =>
+    invoke('update_debug_settings', {
+      debugEnabled: overrides.debugEnabled ?? debugEnabled,
+      debugLevel: overrides.debugLevel ?? debugLevel,
     })
 
   const handleToggleEngine = (val) => { setEnabled(val); saveEngine({ enabled: val }) }
@@ -258,11 +268,8 @@ function EngineTab() {
         >
           <Toggle value={clearBufferOnSwitch} onChange={handleClearBuffer} />
         </SettingRow>
-      </Card>
 
-      <SectionLabel>Advanced</SectionLabel>
-      <Card>
-        <SettingRow label="Advanced Settings" description="Debugging and advanced performance settings.">
+        <SettingRow label="Advanced Performance Settings" description="Configure advanced performance related settings.">
           <button
             onClick={() => setShowAdvanced(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white text-sm transition-colors"
@@ -270,6 +277,32 @@ function EngineTab() {
             Open
           </button>
         </SettingRow>
+      </Card>
+
+      <SectionLabel>Debug</SectionLabel>
+      <Card>
+        <SettingRow
+          label="Debug Mode"
+          description={`Creates by day log files that are automatically deleted after 7 days when enabled.`}
+        >
+          <Toggle
+            value={debugEnabled}
+            onChange={val => { setDebugEnabled(val); saveDebug({ debugEnabled: val }) }}
+          />
+        </SettingRow>
+        {debugEnabled && (
+          <SettingRow label="Log Level" description="Controls how much detail is written to the log file.">
+            <select
+              value={debugLevel}
+              onChange={e => { setDebugLevel(e.target.value); saveDebug({ debugLevel: e.target.value }) }}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
+            >
+              <option value="errors">Errors</option>
+              <option value="warnings">Errors &amp; Warnings</option>
+              <option value="verbose">Verbose</option>
+            </select>
+          </SettingRow>
+        )}
       </Card>
 
       {showAdvanced && <AdvancedModal onClose={() => setShowAdvanced(false)} />}

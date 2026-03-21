@@ -32,9 +32,6 @@ pub struct CustomVariable {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GlobalStats {
-    pub total_expansions: u64,
-    pub total_chars_saved: u64,
-
     #[serde(default)]
     pub expansions_per_day: HashMap<String, u64>,
 
@@ -97,90 +94,68 @@ pub struct RootConfig {
     #[serde(default = "default_clear_buffer_on_switch")]
     pub clear_buffer_on_switch: bool,
 
+    #[serde(default)]
+    pub debug_enabled: bool,
+
+    #[serde(default = "default_debug_level")]
+    pub debug_level: String,
 }
 
 fn default_enabled() -> bool { true }
-
-fn default_theme() -> String { "starry-blue".to_string() }
-
 fn default_track_stats() -> bool { true }
-
 fn default_expansion_delay_ms() -> u64 { 250 }
 fn default_buffer_size() -> usize { 32 }
 fn default_hotkey_delay() -> u64 { 80 }
 fn default_clear_buffer_on_switch() -> bool { true }
+fn default_debug_level() -> String { "errors".to_string() }
 
 impl Default for RootConfig {
     fn default() -> Self {
-        let exp1_id = uuid::Uuid::new_v4().to_string();
-        let exp2_id = uuid::Uuid::new_v4().to_string();
-        let exp3_id = uuid::Uuid::new_v4().to_string();
+        let exp1_id     = uuid::Uuid::new_v4().to_string();
+        let exp2_id     = uuid::Uuid::new_v4().to_string();
+        let exp3_id     = uuid::Uuid::new_v4().to_string();
         let trigger1_id = uuid::Uuid::new_v4().to_string();
         let trigger2_id = uuid::Uuid::new_v4().to_string();
         let trigger3_id = uuid::Uuid::new_v4().to_string();
-        let variable1_id = uuid::Uuid::new_v4().to_string();
-        let variable2_id = uuid::Uuid::new_v4().to_string();
+        let variable_id = uuid::Uuid::new_v4().to_string();
 
         let mut expansions = HashMap::new();
         expansions.insert(exp1_id.clone(), Expansion {
-            id: exp1_id.clone(),
+            id:   exp1_id.clone(),
             name: "Welcome to Expandly".to_string(),
             text: "{greeting}, welcome to Expandly {version}! This is your first snippet. Try editing me or creating your own!".to_string(),
         });
         expansions.insert(exp2_id.clone(), Expansion {
-            id: exp2_id.clone(),
+            id:   exp2_id.clone(),
             name: "Current Date & Time".to_string(),
             text: "The date today is {date} and the time is {time}.".to_string(),
         });
         expansions.insert(exp3_id.clone(), Expansion {
-            id: exp3_id.clone(),
+            id:   exp3_id.clone(),
             name: "Expandly Assistance".to_string(),
             text: "Need help with Expandly? Check out the documentation at {wiki}.".to_string(),
         });
 
         Self {
-            version: env!("CARGO_PKG_VERSION").to_string(),
-
-            enabled: true,
-
-            expansion_delay_ms: 250,
-            buffer_size: 32,
-            hotkey_delay_ms: 80,
+            version:                env!("CARGO_PKG_VERSION").to_string(),
+            enabled:                true,
+            expansion_delay_ms:     250,
+            buffer_size:            32,
+            hotkey_delay_ms:        80,
             clear_buffer_on_switch: true,
-
-            sound_enabled: false,
-            sound_path: Some("https://cdn.klazorix.com/expandly/default_sound.mp3".to_string()),
-
-            launch_at_startup: false,
-            launch_minimised: false,
-            minimise_to_tray: true,
-
-            theme: "starry-blue".to_string(),
-
+            sound_enabled:          false,
+            sound_path:             Some("https://cdn.klazorix.com/expandly/default_sound.mp3".to_string()),
+            launch_at_startup:      false,
+            launch_minimised:       false,
+            minimise_to_tray:       true,
+            theme:                  "starry-blue".to_string(),
             expansions,
-            
             triggers: vec![
-                Trigger {
-                    id: trigger1_id,
-                    key: "/hello".to_string(),
-                    expansion_id: exp1_id,
-                    word_boundary: true,
-                },
-                Trigger {
-                    id: trigger2_id,
-                    key: "/time".to_string(),
-                    expansion_id: exp2_id,
-                    word_boundary: true,
-                },
-                Trigger {
-                    id: trigger3_id,
-                    key: "/help".to_string(),
-                    expansion_id: exp3_id,
-                    word_boundary: true,
-                },
+                Trigger { id: trigger1_id, key: "/hello".to_string(), expansion_id: exp1_id, word_boundary: true },
+                Trigger { id: trigger2_id, key: "/time".to_string(),  expansion_id: exp2_id, word_boundary: true },
+                Trigger { id: trigger3_id, key: "/help".to_string(),  expansion_id: exp3_id, word_boundary: true },
             ],
-            hotkeys: vec![],
-
+            hotkeys:          vec![],
             custom_variables: vec![
                 CustomVariable {
                     id: variable1_id,
@@ -193,9 +168,10 @@ impl Default for RootConfig {
                     value: "https://github.com/klazorix/expandly/wiki".to_string(),
                 }
             ],
-
-            stats: GlobalStats::default(),
-            track_stats: true,
+            stats:         GlobalStats::default(),
+            track_stats:   true,
+            debug_enabled: false,
+            debug_level:   "warnings".to_string(),
         }
     }
 }
