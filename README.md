@@ -33,3 +33,7 @@ CPU Usage | RAM Usage | Storage Requirement |
 | <0.3%*        | ~40MB        | ~15MB | 
 
 _*This is dependant on your CPU. The test was performed on a Ryzen 7800X3D, so some CPUs may experience higher averages._
+
+# 🛠️ Messy commits
+My apologies to anyone trying the follow the commit history.
+I often forget to do commits, so end up splitting major reworks up after they have been done, rather than by file. This also means it looks like I rewrote numerous large files within 10 minutes, in some cases.
