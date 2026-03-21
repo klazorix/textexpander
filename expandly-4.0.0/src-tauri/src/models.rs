@@ -118,7 +118,8 @@ impl Default for RootConfig {
         let trigger1_id = uuid::Uuid::new_v4().to_string();
         let trigger2_id = uuid::Uuid::new_v4().to_string();
         let trigger3_id = uuid::Uuid::new_v4().to_string();
-        let variable_id = uuid::Uuid::new_v4().to_string();
+        let variable1_id = uuid::Uuid::new_v4().to_string();
+        let variable2_id = uuid::Uuid::new_v4().to_string();
 
         let mut expansions = HashMap::new();
         expansions.insert(exp1_id.clone(), Expansion {
@@ -134,7 +135,7 @@ impl Default for RootConfig {
         expansions.insert(exp3_id.clone(), Expansion {
             id: exp3_id.clone(),
             name: "Expandly Assistance".to_string(),
-            text: "Need help with Expandly? Check out the documentation at https://github.com/klazorix/expandly/wiki.".to_string(),
+            text: "Need help with Expandly? Check out the documentation at {wiki}.".to_string(),
         });
 
         Self {
@@ -182,9 +183,14 @@ impl Default for RootConfig {
 
             custom_variables: vec![
                 CustomVariable {
-                    id: variable_id,
+                    id: variable1_id,
                     name: "version".to_string(),
                     value: env!("CARGO_PKG_VERSION").to_string(),
+                },
+                CustomVariable {
+                    id: variable2_id,
+                    name: "wiki".to_string(),
+                    value: "https://github.com/klazorix/expandly/wiki".to_string(),
                 }
             ],
 
