@@ -2,6 +2,7 @@ mod models;
 mod engine;
 mod commands;
 mod db;
+mod backup;
 mod logger;
 
 use std::sync::{Arc, Mutex};
@@ -56,7 +57,6 @@ fn load_or_create_config(app: &tauri::AppHandle) -> (RootConfig, rusqlite::Conne
         eprintln!("[expandly] Schema creation failed: {e}");
     }
 
-    // Migrate schema for existing DBs (adds new columns if missing)
     db::migrate_schema(&conn);
 
     let json_path = config_json_path(app).unwrap_or_default();
@@ -72,7 +72,6 @@ fn load_or_create_config(app: &tauri::AppHandle) -> (RootConfig, rusqlite::Conne
         }
     };
 
-    // Always keep version in sync with the binary
     let version = app.package_info().version.to_string();
     config.version = version.clone();
     for var in &mut config.custom_variables {
@@ -95,7 +94,6 @@ pub fn run() {
         .setup(|app| {
             let (config, conn) = load_or_create_config(&app.handle());
 
-            // Set up logger
             let app_data = data_dir(&app.handle()).unwrap_or_default();
             purge_old_logs(&app_data);
             let log = make_logger(
@@ -108,7 +106,6 @@ pub fn run() {
             let config = Arc::new(Mutex::new(config));
             let db     = Arc::new(Mutex::new(conn));
 
-            // Engine gets config, db, and logger
             engine::start(Arc::clone(&config), Arc::clone(&db), Arc::clone(&log));
 
             let (minimise_to_tray, launch_minimised) = {
@@ -182,6 +179,7 @@ pub fn run() {
             config::get_config,
             config::save_config,
             config::export_config,
+            config::import_config,
             config::reset_config,
             // snippets
             snippets::create_expansion,

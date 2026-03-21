@@ -1,9 +1,9 @@
 use tauri::State;
 
-
 use crate::models::RootConfig;
 use crate::AppState;
 use crate::db;
+use crate::backup;
 
 #[tauri::command]
 pub fn get_config(state: State<'_, AppState>) -> Result<RootConfig, String> {
@@ -15,7 +15,6 @@ pub fn save_config(
     new_config: RootConfig,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // Write to DB first, then update in-memory
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db::write_all(&db, &new_config).map_err(|e| e.to_string())?;
     drop(db);
@@ -32,8 +31,8 @@ pub async fn export_config(
     use tauri_plugin_dialog::DialogExt;
 
     let json = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        serde_json::to_string_pretty(&*config).map_err(|e| e.to_string())?
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        backup::export_to_json(&db).map_err(|e| e.to_string())?
     };
 
     let file_path = app
@@ -48,6 +47,20 @@ pub async fn export_config(
             .map_err(|e| format!("Failed to write file: {e}"))?;
     }
 
+    Ok(())
+}
+
+#[tauri::command]
+pub fn import_config(
+    json: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    backup::import_from_json(&db, &json)?;
+    let new_config = db::load_all(&db).map_err(|e| e.to_string())?;
+    drop(db);
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    *config = new_config;
     Ok(())
 }
 

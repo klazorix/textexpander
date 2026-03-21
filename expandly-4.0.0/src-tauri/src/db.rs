@@ -207,22 +207,22 @@ pub fn write_all(conn: &Connection, cfg: &RootConfig) -> rusqlite::Result<()> {
 
 // ── Config row ────────────────────────────────────────────────────────────
 
-struct ConfigRow {
-    version:                String,
-    enabled:                bool,
-    sound_enabled:          bool,
-    sound_path:             Option<String>,
-    launch_at_startup:      bool,
-    launch_minimised:       bool,
-    minimise_to_tray:       bool,
-    theme:                  String,
-    track_stats:            bool,
-    expansion_delay_ms:     u64,
-    buffer_size:            usize,
-    hotkey_delay_ms:        u64,
-    clear_buffer_on_switch: bool,
-    debug_enabled:          bool,
-    debug_level:            String,
+pub struct ConfigRow {
+    pub version:                String,
+    pub enabled:                bool,
+    pub sound_enabled:          bool,
+    pub sound_path:             Option<String>,
+    pub launch_at_startup:      bool,
+    pub launch_minimised:       bool,
+    pub minimise_to_tray:       bool,
+    pub theme:                  String,
+    pub track_stats:            bool,
+    pub expansion_delay_ms:     u64,
+    pub buffer_size:            usize,
+    pub hotkey_delay_ms:        u64,
+    pub clear_buffer_on_switch: bool,
+    pub debug_enabled:          bool,
+    pub debug_level:            String,
 }
 
 fn load_config_row(conn: &Connection) -> rusqlite::Result<ConfigRow> {
@@ -507,4 +507,9 @@ pub fn increment_stats(
         params![expansion_id],
     )?;
     Ok(())
+}
+
+/// Public accessor for backup.rs — returns the raw config row.
+pub fn load_config_for_export(conn: &Connection) -> rusqlite::Result<ConfigRow> {
+    load_config_row(conn)
 }
