@@ -14,6 +14,7 @@ use commands::*;
 
 pub struct AppState {
     pub config: Arc<Mutex<RootConfig>>,
+    pub db: Arc<Mutex<rusqlite::Connection>>,
 }
 
 fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
