@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Settings as SettingsIcon, Palette, Database, RefreshCw, Upload, X, Volume2, CheckCircle, AlertCircle, Download, ExternalLink, Trash2 } from 'lucide-react'
-const { invoke } = window.__TAURI_INTERNALS__
-
-const GITHUB_REPO = 'klazorix/textexpander'
+import { useInvoke } from '../hooks/useInvoke'
+import { useConfig } from '../hooks/useConfig'
+import Toggle from '../components/Toggle'
+import ConfirmModal from '../components/ConfirmModal'
 
 const tabs = [
   { id: 'engine', label: 'System', icon: SettingsIcon },
@@ -12,33 +13,6 @@ const tabs = [
   { id: 'data', label: 'Data', icon: Database },
   { id: 'updates', label: 'Updates', icon: RefreshCw },
 ]
-
-const THEMES = [
-  { id: 'starry-blue', label: 'Starry Blue', dark: true, swatch: '#161b27', accent: '#3b82f6' },
-  { id: 'midnight', label: 'Midnight', dark: true, swatch: '#0a0a0a', accent: '#3b82f6' },
-  { id: 'charcoal', label: 'Charcoal', dark: true, swatch: '#222222', accent: '#3b82f6' },
-  { id: 'slate', label: 'Slate', dark: true, swatch: '#1e293b', accent: '#6366f1' },
-  { id: 'deep-purple', label: 'Deep Purple', dark: true, swatch: '#16112b', accent: '#8b5cf6' },
-  { id: 'forest', label: 'Forest', dark: true, swatch: '#111f1a', accent: '#10b981' },
-  { id: 'crimson', label: 'Crimson', dark: true, swatch: '#1f1010', accent: '#ef4444' },
-  { id: 'amber', label: 'Amber', dark: true, swatch: '#1f1810', accent: '#f59e0b' },
-  { id: 'rose-pastel', label: 'Rose Pastel', dark: false, swatch: '#ffe4e9', accent: '#f43f5e' },
-  { id: 'sky-pastel', label: 'Sky Pastel', dark: false, swatch: '#e0f2fe', accent: '#0ea5e9' },
-  { id: 'mint-pastel', label: 'Mint Pastel', dark: false, swatch: '#dcfce7', accent: '#22c55e' },
-  { id: 'lavender-pastel', label: 'Lavender Pastel', dark: false, swatch: '#f3e8ff', accent: '#a855f7' },
-  { id: 'pearl', label: 'Pearl', dark: false, swatch: '#f0f0f0', accent: '#3b82f6' },
-]
-
-function Toggle({ value, onChange }) {
-  return (
-    <button
-      onClick={() => onChange(!value)}
-      className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${value ? 'bg-blue-600' : 'bg-gray-600'}`}
-    >
-      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${value ? 'left-5' : 'left-0.5'}`} />
-    </button>
-  )
-}
 
 function SettingRow({ label, description, children }) {
   return (
@@ -68,24 +42,24 @@ function Card({ children }) {
   )
 }
 
+// ── Advanced Modal ────────────────────────────────────────────────────────
+
 function AdvancedModal({ onClose }) {
+  const invoke = useInvoke()
   const [expansionDelay, setExpansionDelay] = useState(325)
   const [hotkeyDelay, setHotkeyDelay] = useState(80)
 
   useEffect(() => {
-    const { invoke } = window.__TAURI_INTERNALS__
     invoke('get_config').then(c => {
       setExpansionDelay(c.expansion_delay_ms ?? 325)
       setHotkeyDelay(c.hotkey_delay_ms ?? 80)
     })
   }, [])
 
-  const save = async (overrides = {}) => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    await invoke('update_expansion_delay', { expansionDelayMs: overrides.expansionDelayMs ?? expansionDelay })
-    await invoke('update_performance_settings', {
+  const save = (overrides = {}) => {
+    invoke('update_expansion_delay', { expansionDelayMs: overrides.expansionDelayMs ?? expansionDelay })
+    invoke('update_performance_settings', {
       hotkeyDelayMs: overrides.hotkeyDelayMs ?? hotkeyDelay,
-      engineRestartDelayMs: 1000,
       clearBufferOnSwitch: true,
     })
   }
@@ -167,95 +141,70 @@ function AdvancedModal({ onClose }) {
   )
 }
 
+// ── Engine Tab ────────────────────────────────────────────────────────────
+
 function EngineTab() {
-  const [config, setConfig] = useState(null)
+  const invoke = useInvoke()
+  const { config } = useConfig()
+
   const [enabled, setEnabled] = useState(false)
   const [launchAtStartup, setLaunchAtStartup] = useState(false)
   const [launchMinimised, setLaunchMinimised] = useState(false)
   const [minimiseToTray, setMinimiseToTray] = useState(false)
-  const [appVersion, setAppVersion] = useState("")
-  const [expansionDelay, setExpansionDelay] = useState(325)
+  const [appVersion, setAppVersion] = useState('')
   const [bufferSize, setBufferSize] = useState(16)
-  const [hotkeyDelay, setHotkeyDelay] = useState(80)
-  const [engineRestartDelay, setEngineRestartDelay] = useState(1000)
-  const [showAdvanced, setShowAdvanced] = useState(false)
   const [clearBufferOnSwitch, setClearBufferOnSwitch] = useState(true)
-  const fileRef = useRef()
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   useEffect(() => {
-    invoke('get_config').then(c => {
-      setConfig(c)
-      setEnabled(c.enabled)
-      setLaunchAtStartup(c.launch_at_startup ?? false)
-      setMinimiseToTray(c.minimise_to_tray ?? false)
-      setLaunchMinimised(c.launch_minimised ?? false)
-      setExpansionDelay(c.expansion_delay_ms ?? 325)
-      setBufferSize(c.buffer_size ?? 16)
-      setHotkeyDelay(c.hotkey_delay_ms ?? 80)
-      setClearBufferOnSwitch(c.clear_buffer_on_switch ?? true)
-    })
-  }, [])
+    if (!config) return
+    setEnabled(config.enabled)
+    setLaunchAtStartup(config.launch_at_startup ?? false)
+    setMinimiseToTray(config.minimise_to_tray ?? false)
+    setLaunchMinimised(config.launch_minimised ?? false)
+    setBufferSize(config.buffer_size ?? 16)
+    setClearBufferOnSwitch(config.clear_buffer_on_switch ?? true)
+  }, [config])
 
   useEffect(() => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    invoke('get_app_version').then(v => {
-      setAppVersion(v)
-      checkForUpdates(v)
-    })
+    invoke('get_app_version').then(setAppVersion)
   }, [])
 
-  const saveEngine = async (overrides = {}) => {
-    await invoke('update_engine_settings', {
+  const saveEngine = (overrides = {}) =>
+    invoke('update_engine_settings', {
       enabled: overrides.enabled ?? enabled,
-      soundEnabled: overrides.soundEnabled ?? soundEnabled,
-      soundPath: overrides.soundPath !== undefined ? overrides.soundPath : soundPath,
+      soundEnabled: config?.sound_enabled ?? false,
+      soundPath: config?.sound_path ?? null,
     })
-  }
 
-  const saveSystem = async (overrides = {}) => {
-    await invoke('update_system_settings', {
+  const saveSystem = (overrides = {}) =>
+    invoke('update_system_settings', {
       launchAtStartup: overrides.launchAtStartup ?? launchAtStartup,
       launchMinimised: overrides.launchMinimised ?? launchMinimised,
       minimiseToTray: overrides.minimiseToTray ?? minimiseToTray,
     })
-  }
 
   const handleToggleEngine = (val) => { setEnabled(val); saveEngine({ enabled: val }) }
   const handleStartup = (val) => { setLaunchAtStartup(val); saveSystem({ launchAtStartup: val }) }
   const handleTray = (val) => { setMinimiseToTray(val); saveSystem({ minimiseToTray: val }) }
   const handleLaunchMinimised = (val) => { setLaunchMinimised(val); saveSystem({ launchMinimised: val }) }
 
-  const handleExpansionDelay = async (val) => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    const num = Math.max(0, parseInt(val) || 0)
-    setExpansionDelay(num)
-    await invoke('update_expansion_delay', { expansionDelayMs: num })
-  }
-
-  const handlePerformance = async (overrides = {}) => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    await invoke('update_performance_settings', {
-      hotkeyDelayMs: overrides.hotkeyDelayMs ?? hotkeyDelay,
-      engineRestartDelayMs: overrides.engineRestartDelayMs ?? engineRestartDelay,
-      clearBufferOnSwitch: overrides.clearBufferOnSwitch ?? clearBufferOnSwitch,
-    })
-  }
-
-  const handleBufferSize = async (val) => {
-    const { invoke } = window.__TAURI_INTERNALS__
+  const handleBufferSize = (val) => {
     const num = Math.max(1, Math.min(64, parseInt(val) || 16))
     setBufferSize(num)
-    await invoke('update_buffer_size', { bufferSize: num })
+    invoke('update_buffer_size', { bufferSize: num })
+  }
+
+  const handleClearBuffer = (val) => {
+    setClearBufferOnSwitch(val)
+    invoke('update_performance_settings', { hotkeyDelayMs: config?.hotkey_delay_ms ?? 80, clearBufferOnSwitch: val })
   }
 
   return (
     <div>
       <SectionLabel>Engine</SectionLabel>
       <Card>
-        <SettingRow
-          label="Enable Engine"
-          description="Master switch - when off, no triggers or hotkeys will fire"
-        >
+        <SettingRow label="Enable Engine" description="Master switch - when off, no triggers or hotkeys will fire">
           <Toggle value={enabled} onChange={handleToggleEngine} />
         </SettingRow>
         <div className="py-3">
@@ -265,36 +214,24 @@ function EngineTab() {
 
       <SectionLabel>Startup</SectionLabel>
       <Card>
-        <SettingRow
-          label="Launch at Login"
-          description="Start Expandly automatically when you log in"
-        >
+        <SettingRow label="Launch at Login" description="Start Expandly automatically when you log in">
           <Toggle value={launchAtStartup} onChange={handleStartup} />
         </SettingRow>
-        <SettingRow
-          label="Launch Minimised"
-          description="Start Expandly minimised to the system tray"
-        >
+        <SettingRow label="Launch Minimised" description="Start Expandly minimised to the system tray">
           <Toggle value={launchMinimised} onChange={handleLaunchMinimised} />
         </SettingRow>
-        <SettingRow
-          label="Minimise to Tray on Close"
-          description="Keep Expandly running in the system tray when the window is closed"
-        >
+        <SettingRow label="Minimise to Tray on Close" description="Keep Expandly running in the system tray when the window is closed">
           <Toggle value={minimiseToTray} onChange={handleTray} />
         </SettingRow>
       </Card>
 
       <SectionLabel>Performance</SectionLabel>
       <Card>
-
         <SettingRow
           label={
             <div className="flex items-center gap-2">
               <span>Buffer Size</span>
-              <span className="text-xs bg-orange-500/15 text-orange-300 px-2 py-0.5 rounded-md">
-                Medium Impact
-              </span>
+              <span className="text-xs bg-orange-500/15 text-orange-300 px-2 py-0.5 rounded-md">Medium Impact</span>
             </div>
           }
           description="Maximum number of characters tracked for trigger matching (indirectly sets the maximum trigger length)."
@@ -314,29 +251,18 @@ function EngineTab() {
           label={
             <div className="flex items-center gap-2">
               <span>Clear Buffer on Window Switch</span>
-              <span className="text-xs bg-red-500/15 text-red-300 px-2 py-0.5 rounded-md">
-                High Impact
-              </span>
+              <span className="text-xs bg-red-500/15 text-red-300 px-2 py-0.5 rounded-md">High Impact</span>
             </div>
           }
           description="Clears the typed character buffer when you switch applications, preventing accidental trigger matches."
         >
-          <Toggle
-            value={clearBufferOnSwitch}
-            onChange={val => {
-              setClearBufferOnSwitch(val)
-              handlePerformance({ clearBufferOnSwitch: val })
-            }}
-          />
+          <Toggle value={clearBufferOnSwitch} onChange={handleClearBuffer} />
         </SettingRow>
       </Card>
 
       <SectionLabel>Advanced</SectionLabel>
       <Card>
-        <SettingRow
-          label="Advanced Settings"
-          description="Debugging and advanced performance settings."
-        >
+        <SettingRow label="Advanced Settings" description="Debugging and advanced performance settings.">
           <button
             onClick={() => setShowAdvanced(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white text-sm transition-colors"
@@ -351,36 +277,34 @@ function EngineTab() {
   )
 }
 
+// ── Appearance Tab ────────────────────────────────────────────────────────
+
 function AppearanceTab() {
-  const [config, setConfig] = useState(null)
+  const invoke = useInvoke()
+  const { config } = useConfig()
+  const fileRef = useRef()
+
   const [soundEnabled, setSoundEnabled] = useState(false)
   const [soundPath, setSoundPath] = useState(null)
   const [soundName, setSoundName] = useState(null)
-  const fileRef = useRef()
 
   useEffect(() => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    invoke('get_config').then(c => {
-      setConfig(c)
-      setSoundEnabled(c.sound_enabled)
-      setSoundPath(c.sound_path ?? null)
-      if (c.sound_path) setSoundName(c.sound_path.split(/[\\/]/).pop())
-    })
-  }, [])
+    if (!config) return
+    setSoundEnabled(config.sound_enabled)
+    setSoundPath(config.sound_path ?? null)
+    if (config.sound_path) setSoundName(config.sound_path.split(/[\\/]/).pop())
+  }, [config])
 
-  const saveEngine = async (overrides = {}) => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    await invoke('update_engine_settings', {
+  const saveEngine = (overrides = {}) =>
+    invoke('update_engine_settings', {
       enabled: config?.enabled ?? true,
       soundEnabled: overrides.soundEnabled ?? soundEnabled,
       soundPath: overrides.soundPath !== undefined ? overrides.soundPath : soundPath,
     })
-  }
 
   const handleToggleSound = (val) => { setSoundEnabled(val); saveEngine({ soundEnabled: val }) }
 
   const handleFileUpload = async (e) => {
-    const { invoke } = window.__TAURI_INTERNALS__
     const file = e.target.files[0]
     if (!file) return
     const buffer = await file.arrayBuffer()
@@ -414,17 +338,11 @@ function AppearanceTab() {
 
       <SectionLabel>Expansion Sound</SectionLabel>
       <Card>
-        <SettingRow
-          label="Play Sound on Expansion"
-          description="Plays a custom sound every time a snippet expands"
-        >
+        <SettingRow label="Play Sound on Expansion" description="Plays a custom sound every time a snippet expands">
           <Toggle value={soundEnabled} onChange={handleToggleSound} />
         </SettingRow>
         {soundEnabled && (
-          <SettingRow
-            label="Sound File"
-            description="Upload a .mp3 or .wav to play on expansion. Maximum length of 10 seconds."
-          >
+          <SettingRow label="Sound File" description="Upload a .mp3 or .wav to play on expansion. Maximum length of 10 seconds.">
             <div className="flex items-center gap-2">
               {soundName ? (
                 <>
@@ -435,10 +353,7 @@ function AppearanceTab() {
                     <Volume2 size={13} />
                     {soundName}
                   </button>
-                  <button
-                    onClick={handleRemoveSound}
-                    className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-gray-800 transition-colors"
-                  >
+                  <button onClick={handleRemoveSound} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-gray-800 transition-colors">
                     <X size={14} />
                   </button>
                 </>
@@ -451,13 +366,7 @@ function AppearanceTab() {
                   Upload Sound
                 </button>
               )}
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".mp3,.wav"
-                className="hidden"
-                onChange={handleFileUpload}
-              />
+              <input ref={fileRef} type="file" accept=".mp3,.wav" className="hidden" onChange={handleFileUpload} />
             </div>
           </SettingRow>
         )}
@@ -466,54 +375,34 @@ function AppearanceTab() {
   )
 }
 
-function ConfirmModal({ message, onConfirm, onCancel }) {
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-        <p className="text-white text-sm leading-relaxed mb-6">{message}</p>
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-2 rounded-lg text-sm bg-red-600 hover:bg-red-500 text-white font-medium transition-colors"
-          >
-            Confirm
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
+// ── Data Tab ──────────────────────────────────────────────────────────────
 
 function DataTab() {
+  const invoke = useInvoke()
+  const { config } = useConfig()
+  const fileRef = useRef()
+
   const [importing, setImporting] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [message, setMessage] = useState(null)
   const [trackStats, setTrackStats] = useState(true)
   const [confirmModal, setConfirmModal] = useState(null)
-  const fileRef = useRef()
+
+  useEffect(() => {
+    if (!config) return
+    setTrackStats(config.track_stats ?? true)
+  }, [config])
 
   const showMessage = (text, color = 'green') => {
     setMessage({ text, color })
     setTimeout(() => setMessage(null), 6000)
   }
 
-  useEffect(() => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    invoke('get_config').then(c => setTrackStats(c.track_stats ?? true))
-  }, [])
-
   const handleTrackStats = (val) => {
     if (!val) {
       setConfirmModal({
         message: 'Disabling statistics tracking will permanently clear all recorded statistics. This cannot be undone. Are you sure?',
         onConfirm: async () => {
-          const { invoke } = window.__TAURI_INTERNALS__
           setConfirmModal(null)
           await invoke('reset_stats')
           setTrackStats(false)
@@ -523,23 +412,20 @@ function DataTab() {
       })
       return
     }
-    const { invoke } = window.__TAURI_INTERNALS__
     setTrackStats(val)
     invoke('update_track_stats', { trackStats: val })
   }
 
   const handleExport = async () => {
-    const { invoke } = window.__TAURI_INTERNALS__
     try {
       await invoke('export_config')
       showMessage('Config exported successfully')
-    } catch (e) {
+    } catch {
       showMessage('Export failed', 'red')
     }
   }
 
   const handleImport = async (e) => {
-    const { invoke } = window.__TAURI_INTERNALS__
     const file = e.target.files[0]
     if (!file) return
     setImporting(true)
@@ -555,11 +441,10 @@ function DataTab() {
     }
   }
 
-  const handleReset = async () => {
+  const handleReset = () => {
     setConfirmModal({
       message: 'This will permanently delete all your snippets, triggers, hotkeys and variables. This cannot be undone. Are you sure?',
       onConfirm: async () => {
-        const { invoke } = window.__TAURI_INTERNALS__
         setConfirmModal(null)
         setResetting(true)
         try {
@@ -578,46 +463,28 @@ function DataTab() {
   return (
     <div>
       {message && (
-        <div className={`flex items-center gap-3 rounded-xl px-4 py-3 mb-6 ${message.color === 'red'
-          ? 'bg-red-500/10 border border-red-500/30'
-          : 'bg-emerald-500/10 border border-emerald-500/30'
-          }`}>
+        <div className={`flex items-center gap-3 rounded-xl px-4 py-3 mb-6 ${message.color === 'red' ? 'bg-red-500/10 border border-red-500/30' : 'bg-emerald-500/10 border border-emerald-500/30'}`}>
           <CheckCircle size={16} className={message.color === 'red' ? 'text-red-400' : 'text-emerald-400'} />
-          <p className={`text-sm ${message.color === 'red' ? 'text-red-300' : 'text-emerald-300'}`}>
-            {message.text}
-          </p>
+          <p className={`text-sm ${message.color === 'red' ? 'text-red-300' : 'text-emerald-300'}`}>{message.text}</p>
         </div>
       )}
 
       <SectionLabel>Statistics</SectionLabel>
       <Card>
-        <SettingRow
-          label="Track Statistics"
-          description="Record expansion counts and characters saved over time"
-        >
+        <SettingRow label="Track Statistics" description="Record expansion counts and characters saved over time">
           <Toggle value={trackStats} onChange={handleTrackStats} />
         </SettingRow>
       </Card>
 
       <SectionLabel>Backup</SectionLabel>
       <Card>
-        <SettingRow
-          label="Export Config"
-          description="Download a backup of all your snippets, triggers, hotkeys and variables"
-        >
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white text-sm transition-colors"
-          >
+        <SettingRow label="Export Config" description="Download a backup of all your snippets, triggers, hotkeys and variables">
+          <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white text-sm transition-colors">
             <Upload size={14} />
             Export
           </button>
         </SettingRow>
-
-        <SettingRow
-          label="Import Config"
-          description="Restore from a previously exported backup file"
-        >
+        <SettingRow label="Import Config" description="Restore from a previously exported backup file">
           <button
             onClick={() => fileRef.current.click()}
             disabled={importing}
@@ -626,22 +493,13 @@ function DataTab() {
             <Download size={14} />
             {importing ? 'Importing...' : 'Import'}
           </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".json"
-            className="hidden"
-            onChange={handleImport}
-          />
+          <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
         </SettingRow>
       </Card>
 
       <SectionLabel>Danger Zone</SectionLabel>
       <div className="bg-red-500/5 border border-red-500/20 rounded-2xl px-6">
-        <SettingRow
-          label="Reset All Data"
-          description="Permanently delete all snippets, triggers, hotkeys and variables"
-        >
+        <SettingRow label="Reset All Data" description="Permanently delete all snippets, triggers, hotkeys and variables">
           <button
             onClick={handleReset}
             disabled={resetting}
@@ -652,6 +510,7 @@ function DataTab() {
           </button>
         </SettingRow>
       </div>
+
       {confirmModal && (
         <ConfirmModal
           message={confirmModal.message}
@@ -662,6 +521,8 @@ function DataTab() {
     </div>
   )
 }
+
+// ── Updates Tab ───────────────────────────────────────────────────────────
 
 function newerVersion(latest, current) {
   const clean = v => v.replace(/^v/, '')
@@ -684,8 +545,7 @@ function newerVersion(latest, current) {
 }
 
 function formatDate(iso) {
-  const d = new Date(iso)
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
 function formatBytes(bytes) {
@@ -695,10 +555,8 @@ function formatBytes(bytes) {
 }
 
 function ChangelogModal({ release, onClose }) {
-  const openUrl = (url) => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    invoke('open_url', { url }).catch(() => { })
-  }
+  const invoke = useInvoke()
+  const openUrl = (url) => invoke('open_url', { url }).catch(() => { })
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-6">
@@ -734,19 +592,11 @@ function ChangelogModal({ release, onClose }) {
                 code: ({ children }) => <code className="text-blue-300 bg-blue-500/10 px-1 rounded text-xs">{children}</code>,
                 hr: () => <hr className="border-gray-700 my-4" />,
                 a: ({ href, children }) => (
-                  <button onClick={() => openUrl(href)} className="text-blue-400 hover:underline">
-                    {children}
-                  </button>
+                  <button onClick={() => openUrl(href)} className="text-blue-400 hover:underline">{children}</button>
                 ),
-                table: ({ children }) => (
-                  <table className="w-full text-sm text-gray-300 border-collapse mb-3">{children}</table>
-                ),
-                th: ({ children }) => (
-                  <th className="text-left text-white font-semibold border-b border-gray-700 pb-1 pr-4">{children}</th>
-                ),
-                td: ({ children }) => (
-                  <td className="border-b border-gray-800 py-1 pr-4">{children}</td>
-                ),
+                table: ({ children }) => <table className="w-full text-sm text-gray-300 border-collapse mb-3">{children}</table>,
+                th: ({ children }) => <th className="text-left text-white font-semibold border-b border-gray-700 pb-1 pr-4">{children}</th>,
+                td: ({ children }) => <td className="border-b border-gray-800 py-1 pr-4">{children}</td>,
               }}
             >
               {release.body}
@@ -768,10 +618,7 @@ function ChangelogModal({ release, onClose }) {
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <span className="text-gray-500 text-xs">{formatBytes(asset.size)}</span>
-                    <button
-                      onClick={() => openUrl(asset.browser_download_url)}
-                      className="text-blue-400 hover:text-blue-300 transition-colors"
-                    >
+                    <button onClick={() => openUrl(asset.browser_download_url)} className="text-blue-400 hover:text-blue-300 transition-colors">
                       <ExternalLink size={13} />
                     </button>
                   </div>
@@ -796,21 +643,18 @@ function ChangelogModal({ release, onClose }) {
 }
 
 function UpdatesTab() {
+  const invoke = useInvoke()
   const [status, setStatus] = useState('idle')
   const [latestRelease, setLatestRelease] = useState(null)
   const [currentRelease, setCurrentRelease] = useState(null)
   const [checkedAt, setCheckedAt] = useState(null)
   const [appVersion, setAppVersion] = useState('')
-  const [allowPrerelease, setAllowPrerelease] = useState(false)
   const [showChangelog, setShowChangelog] = useState(null)
 
   useEffect(() => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    invoke('get_config').then(c => {
-      invoke('get_app_version').then(v => {
-        setAppVersion(v)
-        checkForUpdates(v)
-      })
+    invoke('get_app_version').then(v => {
+      setAppVersion(v)
+      checkForUpdates(v)
     })
   }, [])
 
@@ -818,20 +662,15 @@ function UpdatesTab() {
     setStatus('checking')
     try {
       const allRes = await fetch('https://api.github.com/repos/klazorix/Expandly/releases')
-      if (!allRes.ok) throw new Error('GitHub API error')
+      if (!allRes.ok) throw new Error()
       const allReleases = await allRes.json()
-
-      const current = allReleases.find(r =>
-        r.tag_name === version ||
-        r.tag_name === `v${version}`
-      )
+      const current = allReleases.find(r => r.tag_name === version || r.tag_name === `v${version}`)
       setCurrentRelease(current ?? null)
 
       const latestRes = await fetch('https://api.github.com/repos/klazorix/Expandly/releases/latest')
-      if (!latestRes.ok) throw new Error('GitHub API error')
+      if (!latestRes.ok) throw new Error()
       const candidate = await latestRes.json()
-
-      if (!candidate) throw new Error('No releases found')
+      if (!candidate) throw new Error()
 
       setLatestRelease(candidate)
       setCheckedAt(new Date())
@@ -843,12 +682,12 @@ function UpdatesTab() {
 
   return (
     <div>
-
-      <div className={`rounded-2xl border p-6 mb-4 transition-colors ${status === 'available' ? 'bg-orange-500/5 border-orange-500/30'
+      <div className={`rounded-2xl border p-6 mb-4 transition-colors ${
+        status === 'available' ? 'bg-orange-500/5 border-orange-500/30'
         : status === 'uptodate' ? 'bg-emerald-500/5 border-emerald-500/30'
-          : status === 'error' ? 'bg-red-500/5 border-red-500/30'
-            : 'bg-gray-900 border-gray-800'
-        }`}>
+        : status === 'error' ? 'bg-red-500/5 border-red-500/30'
+        : 'bg-gray-900 border-gray-800'
+      }`}>
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             {status === 'checking' && <RefreshCw size={24} className="text-blue-400 animate-spin shrink-0" />}
@@ -857,35 +696,18 @@ function UpdatesTab() {
             {status === 'error' && <AlertCircle size={24} className="text-red-400 shrink-0" />}
             {status === 'idle' && <RefreshCw size={24} className="text-gray-600 shrink-0" />}
             <div>
-              {status === 'checking' && (
-                <>
-                  <p className="text-white font-semibold">Checking for updates...</p>
-                  <p className="text-gray.400 text-sm mt-0.5">Contacting GitHub</p>
-                </>
-              )}
-              {status === 'uptodate' && (
-                <>
-                  <p className="text-white font-semibold">You are up to date</p>
-                  <p className="text-gray-400 text-sm mt-0.5">Expandly {appVersion} is the latest version</p>
-                </>
-              )}
+              {status === 'checking' && <><p className="text-white font-semibold">Checking for updates...</p><p className="text-gray-400 text-sm mt-0.5">Contacting GitHub</p></>}
+              {status === 'uptodate' && <><p className="text-white font-semibold">You are up to date</p><p className="text-gray-400 text-sm mt-0.5">Expandly {appVersion} is the latest version</p></>}
               {status === 'available' && (
                 <>
                   <p className="text-white font-semibold">Update available — {latestRelease.tag_name}</p>
                   <p className="text-gray-400 text-sm mt-0.5">
                     Released {formatDate(latestRelease.published_at)}
-                    {latestRelease.prerelease && (
-                      <span className="ml-2 text-xs bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full">Pre-release</span>
-                    )}
+                    {latestRelease.prerelease && <span className="ml-2 text-xs bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full">Pre-release</span>}
                   </p>
                 </>
               )}
-              {status === 'error' && (
-                <>
-                  <p className="text-white font-semibold">Could not check for updates</p>
-                  <p className="text-gray-400 text-sm mt-0.5">Check your internet connection</p>
-                </>
-              )}
+              {status === 'error' && <><p className="text-white font-semibold">Could not check for updates</p><p className="text-gray-400 text-sm mt-0.5">Check your internet connection</p></>}
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -898,7 +720,7 @@ function UpdatesTab() {
               </button>
             )}
             <button
-              onClick={() => checkForUpdates(appVersion, allowPrerelease)}
+              onClick={() => checkForUpdates(appVersion)}
               disabled={status === 'checking'}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium transition-colors disabled:opacity-40"
             >
@@ -928,17 +750,24 @@ function UpdatesTab() {
       )}
 
       {showChangelog && (
-        <ChangelogModal
-          release={showChangelog}
-          onClose={() => setShowChangelog(null)}
-        />
+        <ChangelogModal release={showChangelog} onClose={() => setShowChangelog(null)} />
       )}
     </div>
   )
 }
 
+// ── Root ──────────────────────────────────────────────────────────────────
+
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('engine')
+
+  // Support navigating directly to a tab via router state
+  useEffect(() => {
+    try {
+      const state = window.history.state?.usr
+      if (state?.tab) setActiveTab(state.tab)
+    } catch { }
+  }, [])
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -952,10 +781,9 @@ export default function Settings() {
           <button
             key={id}
             onClick={() => setActiveTab(id)}
-            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === id
-              ? 'bg-blue-600 text-white'
-              : 'text-gray-400 hover:text-white hover:bg-gray-800'
-              }`}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === id ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
           >
             <Icon size={15} />
             {label}

@@ -1,26 +1,21 @@
 import { useEffect, useState } from 'react'
 import { FileText, Zap, Keyboard, Variable, Trophy, Calendar, CalendarDays, Infinity } from 'lucide-react'
+import { useConfig } from '../hooks/useConfig'
+import { useInvoke } from '../hooks/useInvoke'
 
 export default function Dashboard() {
-  const [config, setConfig] = useState(null)
+  const { config } = useConfig(5000)
+  const invoke = useInvoke()
   const [appVersion, setAppVersion] = useState('...')
 
   useEffect(() => {
-    const load = () => {
-      const { invoke } = window.__TAURI_INTERNALS__
-      invoke('get_config').then(setConfig)
-      invoke('get_app_version').then(setAppVersion)
-    }
-    load()
-    const interval = setInterval(load, 5000)
-    return () => clearInterval(interval)
+    invoke('get_app_version').then(setAppVersion)
   }, [])
 
   const snippetCount = config ? Object.keys(config.expansions).length : 0
   const triggerCount = config ? config.triggers.length : 0
   const hotkeyCount = config ? config.hotkeys.length : 0
   const variableCount = config ? config.custom_variables.length : 0
-
   const totalExpansions = config?.stats.total_expansions ?? 0
 
   const todayKey = (() => {
@@ -63,13 +58,11 @@ export default function Dashboard() {
   return (
     <div className="max-w-5xl mx-auto">
 
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-white">Dashboard</h1>
         <p className="text-gray-400 mt-1">Welcome back. Here's what's happening.</p>
       </div>
 
-      {/* Engine Status */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl px-6 py-4 mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className={`w-2.5 h-2.5 rounded-full ${config?.enabled ? 'bg-emerald-400' : 'bg-red-400'}`} />
@@ -90,7 +83,6 @@ export default function Dashboard() {
         </span>
       </div>
 
-      {/* Upper middle — count cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         {countCards.map(({ label, value, icon: Icon, color }) => (
           <div
@@ -108,7 +100,6 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Lower middle — Leaderboard + Time stats */}
       {config && !config.track_stats ? (
         <div className="bg-gray-900 border border-gray-800 border-dashed rounded-2xl p-10 flex flex-col items-center justify-center text-center">
           <p className="text-gray-400 font-medium mb-1">Usage statistics disabled</p>
@@ -117,13 +108,11 @@ export default function Dashboard() {
       ) : (
         <div className="grid grid-cols-5 gap-4">
 
-          {/* Leaderboard */}
           <div className="col-span-3 bg-gray-900 border border-gray-800 rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-5">
               <Trophy size={16} className="text-amber-400" />
               <h2 className="text-sm font-semibold text-white">Most Used Snippets</h2>
             </div>
-
             {leaderboard.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <p className="text-gray-600 text-sm">No expansions recorded yet</p>
@@ -133,11 +122,7 @@ export default function Dashboard() {
               <div className="flex flex-col gap-4">
                 {leaderboard.map((item, i) => (
                   <div key={i} className="flex items-center gap-3">
-                    <span className={`text-xs font-bold w-5 shrink-0 ${i === 0 ? 'text-amber-400' :
-                      i === 1 ? 'text-gray-300' :
-                        i === 2 ? 'text-orange-600' :
-                          'text-gray-600'
-                      }`}>
+                    <span className={`text-xs font-bold w-5 shrink-0 ${i === 0 ? 'text-amber-400' : i === 1 ? 'text-gray-300' : i === 2 ? 'text-orange-600' : 'text-gray-600'}`}>
                       #{i + 1}
                     </span>
                     <div className="flex-1 min-w-0">
@@ -147,11 +132,7 @@ export default function Dashboard() {
                       </div>
                       <div className="w-full bg-gray-800 rounded-full h-1">
                         <div
-                          className={`h-1 rounded-full transition-all ${i === 0 ? 'bg-amber-400' :
-                            i === 1 ? 'bg-gray-300' :
-                              i === 2 ? 'bg-orange-600' :
-                                'bg-gray-700'
-                            }`}
+                          className={`h-1 rounded-full transition-all ${i === 0 ? 'bg-amber-400' : i === 1 ? 'bg-gray-300' : i === 2 ? 'bg-orange-600' : 'bg-gray-700'}`}
                           style={{ width: `${(item.count / (leaderboard[0]?.count || 1)) * 100}%` }}
                         />
                       </div>
@@ -162,41 +143,25 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Time stats */}
           <div className="col-span-2 flex flex-col gap-4">
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex items-center gap-4 flex-1 hover:border-gray-700 transition-colors">
-              <div className="bg-gradient-to-br from-orange-600 to-orange-400 p-3 rounded-xl shrink-0">
-                <Calendar size={18} className="text-white" />
+            {[
+              { label: 'Today', value: todayExpansions, icon: Calendar, color: 'from-orange-600 to-orange-400' },
+              { label: 'This Week', value: thisWeek, icon: CalendarDays, color: 'from-teal-600 to-teal-400' },
+              { label: 'All Time', value: totalExpansions, icon: Infinity, color: 'from-emerald-600 to-emerald-400' },
+            ].map(({ label, value, icon: Icon, color }) => (
+              <div key={label} className="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex items-center gap-4 flex-1 hover:border-gray-700 transition-colors">
+                <div className={`bg-gradient-to-br ${color} p-3 rounded-xl shrink-0`}>
+                  <Icon size={18} className="text-white" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-white">{value.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{label}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-2xl font-bold text-white">{todayExpansions.toLocaleString()}</p>
-                <p className="text-xs text-gray-400 mt-0.5">Today</p>
-              </div>
-            </div>
-
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex items-center gap-4 flex-1 hover:border-gray-700 transition-colors">
-              <div className="bg-gradient-to-br from-teal-600 to-teal-400 p-3 rounded-xl shrink-0">
-                <CalendarDays size={18} className="text-white" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">{thisWeek.toLocaleString()}</p>
-                <p className="text-xs text-gray-400 mt-0.5">This Week</p>
-              </div>
-            </div>
-
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex items-center gap-4 flex-1 hover:border-gray-700 transition-colors">
-              <div className="bg-gradient-to-br from-emerald-600 to-emerald-400 p-3 rounded-xl shrink-0">
-                <Infinity size={18} className="text-white" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">{totalExpansions.toLocaleString()}</p>
-                <p className="text-xs text-gray-400 mt-0.5">All Time</p>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       )}
-
     </div>
   )
 }
