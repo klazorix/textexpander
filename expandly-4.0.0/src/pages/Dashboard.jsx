@@ -1,22 +1,27 @@
 import { useEffect, useState } from 'react'
 import { FileText, Zap, Keyboard, Variable, Trophy, Calendar, CalendarDays, Infinity } from 'lucide-react'
-import { useConfig } from '../hooks/useConfig'
-import { useInvoke } from '../hooks/useInvoke'
 
 export default function Dashboard() {
-  const { config } = useConfig(5000)
-  const invoke = useInvoke()
+  const [config, setConfig] = useState(null)
   const [appVersion, setAppVersion] = useState('...')
 
   useEffect(() => {
+    const { invoke } = window.__TAURI_INTERNALS__
+    const load = () => invoke('get_config').then(setConfig)
     invoke('get_app_version').then(setAppVersion)
+    load()
+    const id = setInterval(load, 1000)
+    return () => clearInterval(id)
   }, [])
+
 
   const snippetCount = config ? Object.keys(config.expansions).length : 0
   const triggerCount = config ? config.triggers.length : 0
   const hotkeyCount = config ? config.hotkeys.length : 0
   const variableCount = config ? config.custom_variables.length : 0
-  const totalExpansions = config?.stats.total_expansions ?? 0
+  const totalExpansions = config?.stats.expansions_per_day
+    ? Object.values(config.stats.expansions_per_day).reduce((a, b) => a + b, 0)
+    : 0
 
   const todayKey = (() => {
     const d = new Date()
