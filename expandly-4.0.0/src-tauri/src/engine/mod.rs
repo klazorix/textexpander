@@ -5,7 +5,6 @@ pub mod stats;
 pub mod variables;
 
 use std::{
-    path::PathBuf,
     sync::{Arc, Mutex},
     thread,
     time::Duration,
@@ -14,14 +13,12 @@ use std::{
 use rdev::{listen, Event, EventType, Key as RKey};
 
 use crate::models::RootConfig;
+use crate::logger::SharedLogger;
 use keys::{rkey_to_char, rkey_to_modifier_str, rkey_to_name};
 use injection::{delete_chars, inject_text};
 use sound::play_sound;
 use stats::record_stats;
 use variables::resolve_variables;
-
-// Public re-export used by commands/stats.rs
-pub use variables::days_from_epoch as days_from_epoch_pub;
 
 // ── Snapshot ──────────────────────────────────────────────────────────────
 
@@ -78,12 +75,18 @@ fn snap_cfg_ref(snap: &EngineSnapshot) -> RootConfig {
         hotkeys:                snap.hotkeys.clone(),
         custom_variables:       snap.custom_variables.clone(),
         stats:                  crate::models::GlobalStats::default(),
+        debug_enabled:          false,
+        debug_level:            String::new(),
     }
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────
 
-pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
+pub fn start(
+    config: Arc<Mutex<RootConfig>>,
+    db: Arc<Mutex<rusqlite::Connection>>,
+    log: SharedLogger,
+) {
     thread::spawn(move || {
         loop {
             let buffer:    Arc<Mutex<Vec<char>>>   = Arc::new(Mutex::new(Vec::new()));
@@ -92,9 +95,12 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
             let buffer_clone = Arc::clone(&buffer);
             let held_clone   = Arc::clone(&held_keys);
             let config_clone = Arc::clone(&config);
-            let path_clone   = config_file_path.clone();
+            let db_clone     = Arc::clone(&db);
+            let log_clone    = Arc::clone(&log);
 
             let restart_delay: u64 = 1000;
+
+            log.lock().unwrap().verbose("[engine] Listener starting");
 
             let result = listen(move |event: Event| {
                 match event.event_type {
@@ -119,7 +125,6 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                         };
 
                         // ── Clear buffer on window switch (Alt+Tab / Super+Tab) ──
-                        // Only triggers when Tab specifically is pressed, not on every keystroke while Alt/Super is held
                         if snap.clear_buffer_on_switch && matches!(key, RKey::Tab) {
                             let should_clear = {
                                 let held = held_clone.lock().unwrap();
@@ -127,6 +132,7 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                             };
                             if should_clear {
                                 buffer_clone.lock().unwrap().clear();
+                                log_clone.lock().unwrap().verbose("[engine] Buffer cleared on window switch");
                                 return;
                             }
                         }
@@ -141,20 +147,30 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                                     let combo = parts.join("+");
                                     drop(held);
 
+                                    log_clone.lock().unwrap().verbose(&format!("[engine] Hotkey check: combo={combo}"));
+
                                     for hotkey in &snap.hotkeys {
                                         if hotkey.keys.eq_ignore_ascii_case(&combo) {
                                             if let Some(expansion) = snap.expansions.get(&hotkey.expansion_id) {
                                                 let text     = resolve_variables(&expansion.text, &snap_cfg_ref(&snap));
                                                 let exp_id   = hotkey.expansion_id.clone();
+                                                let exp_name = expansion.name.clone();
                                                 let cc       = Arc::clone(&config_clone);
-                                                let pc       = path_clone.clone();
+                                                let db       = Arc::clone(&db_clone);
+                                                let lc       = Arc::clone(&log_clone);
                                                 let hk_delay = snap.hotkey_delay;
                                                 thread::spawn(move || {
+                                                    lc.lock().unwrap().verbose(&format!("[engine] Hotkey fired: {exp_name} ({combo})"));
                                                     thread::sleep(Duration::from_millis(hk_delay));
                                                     inject_text(&text);
-                                                    record_stats(&cc, &pc, &exp_id);
+                                                    record_stats(&cc, &db, &exp_id);
                                                 });
                                                 return;
+                                            } else {
+                                                log_clone.lock().unwrap().warning(&format!(
+                                                    "[engine] Hotkey matched combo={combo} but expansion_id={} not found",
+                                                    hotkey.expansion_id
+                                                ));
                                             }
                                         }
                                     }
@@ -181,7 +197,7 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
 
                             // ── Trigger check ─────────────────────────────
                             let buf_str: String = buf.iter().collect();
-                            let mut found: Option<(String, usize, String)> = None;
+                            let mut found: Option<(String, usize, String, String)> = None;
 
                             'outer: for trigger in &snap.triggers {
                                 if !buf_str.to_lowercase().ends_with(&trigger.key.to_lowercase()) { continue; }
@@ -196,8 +212,14 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                                     let text   = resolve_variables(&expansion.text, &snap_cfg_ref(&snap));
                                     let del    = trigger.key.len();
                                     let exp_id = trigger.expansion_id.clone();
-                                    found = Some((text, del, exp_id));
+                                    let exp_name = expansion.name.clone();
+                                    found = Some((text, del, exp_id, exp_name));
                                     break;
+                                } else {
+                                    log_clone.lock().unwrap().warning(&format!(
+                                        "[engine] Trigger '{}' matched but expansion_id={} not found",
+                                        trigger.key, trigger.expansion_id
+                                    ));
                                 }
                             }
 
@@ -206,18 +228,20 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                         };
 
                         // ── Expand on worker thread — never blocks the hook ─
-                        if let Some((text, delete_count, expansion_id)) = matched {
+                        if let Some((text, delete_count, expansion_id, exp_name)) = matched {
                             let cc    = Arc::clone(&config_clone);
-                            let pc    = path_clone.clone();
+                            let db    = Arc::clone(&db_clone);
+                            let lc    = Arc::clone(&log_clone);
                             let delay = snap.expansion_delay;
                             let se    = snap.sound_enabled;
                             let sp    = snap.sound_path.clone();
 
                             thread::spawn(move || {
+                                lc.lock().unwrap().verbose(&format!("[engine] Trigger fired: {exp_name}"));
                                 thread::sleep(Duration::from_millis(delay));
                                 delete_chars(delete_count);
                                 inject_text(&text);
-                                record_stats(&cc, &pc, &expansion_id);
+                                record_stats(&cc, &db, &expansion_id);
                                 if se { if let Some(path) = sp { play_sound(path); } }
                             });
                         }
@@ -235,6 +259,7 @@ pub fn start(config: Arc<Mutex<RootConfig>>, config_file_path: PathBuf) {
                 }
             });
 
+            log.lock().unwrap().error(&format!("[engine] Listener exited ({result:?}), restarting in {restart_delay}ms"));
             eprintln!("[engine] listener exited ({:?}), restarting in {}ms", result, restart_delay);
             thread::sleep(Duration::from_millis(restart_delay));
         }

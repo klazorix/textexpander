@@ -1,20 +1,9 @@
-use tauri::Manager;
-
-use std::path::PathBuf;
-
 use tauri::State;
 
-use crate::models::RootConfig;
-use crate::helpers::persist_config;
-use crate::AppState;
 
-fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Could not resolve app data directory: {e}"))?;
-    Ok(data_dir.join("config.json"))
-}
+use crate::models::RootConfig;
+use crate::AppState;
+use crate::db;
 
 #[tauri::command]
 pub fn get_config(state: State<'_, AppState>) -> Result<RootConfig, String> {
@@ -25,11 +14,13 @@ pub fn get_config(state: State<'_, AppState>) -> Result<RootConfig, String> {
 pub fn save_config(
     new_config: RootConfig,
     state: State<'_, AppState>,
-    app: tauri::AppHandle,
 ) -> Result<(), String> {
+    // Write to DB first, then update in-memory
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db::write_all(&db, &new_config).map_err(|e| e.to_string())?;
+    drop(db);
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    *config = new_config.clone();
-    persist_config(&config_path(&app)?, &new_config);
+    *config = new_config;
     Ok(())
 }
 
@@ -61,12 +52,12 @@ pub async fn export_config(
 }
 
 #[tauri::command]
-pub fn reset_config(
-    state: State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
+pub fn reset_config(state: State<'_, AppState>) -> Result<(), String> {
+    let new_config = RootConfig::default();
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db::write_all(&db, &new_config).map_err(|e| e.to_string())?;
+    drop(db);
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    *config = RootConfig::default();
-    persist_config(&config_path(&app)?, &config);
+    *config = new_config;
     Ok(())
 }

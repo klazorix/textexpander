@@ -1,6 +1,7 @@
 mod models;
 mod engine;
 mod commands;
+mod db;
 mod logger;
 
 use std::sync::{Arc, Mutex};
@@ -14,49 +15,73 @@ use commands::*;
 
 pub struct AppState {
     pub config: Arc<Mutex<RootConfig>>,
-    pub db: Arc<Mutex<rusqlite::Connection>>,
+    pub db:     Arc<Mutex<rusqlite::Connection>>,
+    pub logger: SharedLogger,
 }
 
-fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let data_dir = app
-        .path()
+fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
         .app_data_dir()
-        .map_err(|e| format!("Could not resolve app data directory: {e}"))?;
-    Ok(data_dir.join("config.json"))
+        .map_err(|e| format!("Could not resolve app data directory: {e}"))
 }
 
-fn load_or_create_config(app: &tauri::AppHandle) -> RootConfig {
-    let path = match config_path(app) {
-        Ok(p) => p,
-        Err(e) => { eprintln!("[expandly] {e}"); return RootConfig::default(); }
-    };
+fn db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(data_dir(app)?.join("expandly.db"))
+}
+
+fn config_json_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(data_dir(app)?.join("config.json"))
+}
+
+fn open_db(app: &tauri::AppHandle) -> Result<rusqlite::Connection, String> {
+    let path = db_path(app)?;
     if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Could not create app data dir: {e}"))?;
     }
-    if path.exists() {
-        match fs::read_to_string(&path) {
-            Ok(raw) => match serde_json::from_str::<RootConfig>(&raw) {
-                Ok(config) => { println!("[expandly] Config loaded from {:?}", path); return config; }
-                Err(e) => {
-                    eprintln!("[expandly] Corrupt config ({e}), backing up.");
-                    let _ = fs::rename(&path, path.with_extension("json.bak"));
-                }
-            },
-            Err(e) => eprintln!("[expandly] Could not read config: {e}"),
+    rusqlite::Connection::open(&path)
+        .map_err(|e| format!("Could not open database: {e}"))
+}
+
+fn load_or_create_config(app: &tauri::AppHandle) -> (RootConfig, rusqlite::Connection) {
+    let conn = match open_db(app) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[expandly] DB open failed: {e}");
+            rusqlite::Connection::open_in_memory().expect("in-memory DB failed")
         }
+    };
+
+    if let Err(e) = db::create_schema(&conn) {
+        eprintln!("[expandly] Schema creation failed: {e}");
     }
 
-    let mut default_config = RootConfig::default();
-    default_config.version = app.package_info().version.to_string();
-    for var in &mut default_config.custom_variables {
+    // Migrate schema for existing DBs (adds new columns if missing)
+    db::migrate_schema(&conn);
+
+    let json_path = config_json_path(app).unwrap_or_default();
+    if let Err(e) = db::migrate_if_needed(&conn, &json_path) {
+        eprintln!("[expandly] Migration failed: {e}");
+    }
+
+    let mut config = match db::load_all(&conn) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[expandly] Failed to load config from DB ({e}), using defaults");
+            RootConfig::default()
+        }
+    };
+
+    // Always keep version in sync with the binary
+    let version = app.package_info().version.to_string();
+    config.version = version.clone();
+    for var in &mut config.custom_variables {
         if var.name == "version" {
-            var.value = app.package_info().version.to_string();
+            var.value = version.clone();
         }
     }
 
-    helpers::persist_config(&path, &default_config);
-    println!("[expandly] Default config written to {:?}", path);
-    default_config
+    (config, conn)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -68,7 +93,6 @@ pub fn run() {
             None,
         ))
         .setup(|app| {
-            let config = load_or_create_config(&app.handle());
             let (config, conn) = load_or_create_config(&app.handle());
 
             // Set up logger
@@ -82,9 +106,8 @@ pub fn run() {
             log.lock().unwrap().verbose("[startup] Expandly starting up");
 
             let config = Arc::new(Mutex::new(config));
-            let path = config_path(&app.handle()).unwrap_or_default();
+            let db     = Arc::new(Mutex::new(conn));
 
-            engine::start(Arc::clone(&config), path);
             // Engine gets config, db, and logger
             engine::start(Arc::clone(&config), Arc::clone(&db), Arc::clone(&log));
 
@@ -93,7 +116,6 @@ pub fn run() {
                 (cfg.minimise_to_tray, cfg.launch_minimised)
             };
 
-            app.manage(AppState { config });
             app.manage(AppState { config, db, logger: log });
 
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -195,5 +217,4 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running expandly");
-}
 }

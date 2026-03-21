@@ -1,32 +1,22 @@
-use tauri::Manager;
-
-use std::path::PathBuf;
-
 use tauri::State;
 
-use crate::models::Hotkey;
-use crate::helpers::persist_config;
-use crate::AppState;
 
-fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Could not resolve app data directory: {e}"))?;
-    Ok(data_dir.join("config.json"))
-}
+use crate::models::Hotkey;
+use crate::AppState;
+use crate::db;
 
 #[tauri::command]
 pub fn create_hotkey(
     keys: String,
     expansion_id: String,
     state: State<'_, AppState>,
-    app: tauri::AppHandle,
 ) -> Result<Hotkey, String> {
-    let mut config = state.config.lock().map_err(|e| e.to_string())?;
     let hotkey = Hotkey { id: uuid::Uuid::new_v4().to_string(), keys, expansion_id };
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db::save_hotkey(&db, &hotkey).map_err(|e| e.to_string())?;
+    drop(db);
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.hotkeys.push(hotkey.clone());
-    persist_config(&config_path(&app)?, &config);
     Ok(hotkey)
 }
 
@@ -36,14 +26,17 @@ pub fn update_hotkey(
     keys: String,
     expansion_id: String,
     state: State<'_, AppState>,
-    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    match config.hotkeys.iter_mut().find(|h| h.id == id) {
-        Some(h) => { h.keys = keys; h.expansion_id = expansion_id; }
-        None => return Err(format!("Hotkey '{id}' not found")),
-    }
-    persist_config(&config_path(&app)?, &config);
+    let hotkey = {
+        let mut config = state.config.lock().map_err(|e| e.to_string())?;
+        match config.hotkeys.iter_mut().find(|h| h.id == id) {
+            Some(h) => { h.keys = keys; h.expansion_id = expansion_id; }
+            None => return Err(format!("Hotkey '{id}' not found")),
+        }
+        config.hotkeys.iter().find(|h| h.id == id).unwrap().clone()
+    };
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db::save_hotkey(&db, &hotkey).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -51,10 +44,11 @@ pub fn update_hotkey(
 pub fn delete_hotkey(
     id: String,
     state: State<'_, AppState>,
-    app: tauri::AppHandle,
 ) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db::delete_hotkey(&db, &id).map_err(|e| e.to_string())?;
+    drop(db);
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.hotkeys.retain(|h| h.id != id);
-    persist_config(&config_path(&app)?, &config);
     Ok(())
 }
