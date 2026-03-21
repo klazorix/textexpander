@@ -117,7 +117,8 @@ impl Default for RootConfig {
         let trigger1_id = uuid::Uuid::new_v4().to_string();
         let trigger2_id = uuid::Uuid::new_v4().to_string();
         let trigger3_id = uuid::Uuid::new_v4().to_string();
-        let variable_id = uuid::Uuid::new_v4().to_string();
+        let variable1_id = uuid::Uuid::new_v4().to_string();
+        let variable2_id = uuid::Uuid::new_v4().to_string();
 
         let mut expansions = HashMap::new();
         expansions.insert(exp1_id.clone(), Expansion {
