@@ -1,8 +1,8 @@
 import { Settings as SettingsIcon, Palette, Database, RefreshCw } from 'lucide-react'
 
 export const tabs = [
-  { id: 'engine', label: 'System', icon: SettingsIcon },
-  { id: 'appearance', label: 'Customise', icon: Palette },
+  { id: 'system', label: 'System', icon: SettingsIcon },
+  { id: 'customise', label: 'Customise', icon: Palette },
   { id: 'data', label: 'Data', icon: Database },
   { id: 'updates', label: 'Updates', icon: RefreshCw },
 ]

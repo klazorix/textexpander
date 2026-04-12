@@ -150,7 +150,7 @@ export default function UpdatesTab() {
               {status === 'uptodate' && <><p className="text-white font-semibold">You are up to date</p><p className="text-gray-400 text-sm mt-0.5">Expandly {appVersion} is the latest version</p></>}
               {status === 'available' && latestRelease && (
                 <>
-                  <p className="text-white font-semibold">Update available â€” {latestRelease.tag_name}</p>
+                  <p className="text-white font-semibold">Update available - {latestRelease.tag_name}</p>
                   <p className="text-gray-400 text-sm mt-0.5">
                     Released {formatDate(latestRelease.published_at)}
                     {latestRelease.prerelease && <span className="ml-2 text-xs bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full">Pre-release</span>}
@@ -203,3 +203,4 @@ export default function UpdatesTab() {
     </div>
   )
 }
+

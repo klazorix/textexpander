@@ -5,13 +5,18 @@ import CustomiseTab from './settings/CustomiseTab'
 import DataTab from './settings/DataTab'
 import UpdatesTab from './settings/UpdatesTab'
 
+const tabAliases = {
+  engine: 'system',
+  appearance: 'customise',
+}
+
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState('engine')
+  const [activeTab, setActiveTab] = useState('system')
 
   useEffect(() => {
     try {
       const state = window.history.state?.usr
-      if (state?.tab) setActiveTab(state.tab)
+      if (state?.tab) setActiveTab(tabAliases[state.tab] ?? state.tab)
     } catch { }
   }, [])
 
@@ -37,8 +42,8 @@ export default function Settings() {
         ))}
       </div>
 
-      {activeTab === 'engine' && <SystemTab />}
-      {activeTab === 'appearance' && <CustomiseTab />}
+      {activeTab === 'system' && <SystemTab />}
+      {activeTab === 'customise' && <CustomiseTab />}
       {activeTab === 'data' && <DataTab />}
       {activeTab === 'updates' && <UpdatesTab />}
     </div>

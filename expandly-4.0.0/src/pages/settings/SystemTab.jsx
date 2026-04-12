@@ -9,11 +9,13 @@ function AdvancedModal({ onClose }) {
   const invoke = useInvoke()
   const [expansionDelay, setExpansionDelay] = useState(325)
   const [hotkeyDelay, setHotkeyDelay] = useState(80)
+  const [clearBufferOnSwitch, setClearBufferOnSwitch] = useState(true)
 
   useEffect(() => {
     invoke('get_config').then(config => {
       setExpansionDelay(config.expansion_delay_ms ?? 325)
       setHotkeyDelay(config.hotkey_delay_ms ?? 80)
+      setClearBufferOnSwitch(config.clear_buffer_on_switch ?? true)
     })
   }, [])
 
@@ -21,7 +23,7 @@ function AdvancedModal({ onClose }) {
     invoke('update_expansion_delay', { expansionDelayMs: overrides.expansionDelayMs ?? expansionDelay })
     invoke('update_performance_settings', {
       hotkeyDelayMs: overrides.hotkeyDelayMs ?? hotkeyDelay,
-      clearBufferOnSwitch: true,
+      clearBufferOnSwitch,
     })
   }
 
@@ -157,7 +159,7 @@ export default function SystemTab() {
 
   return (
     <div>
-      <SectionLabel>Engine</SectionLabel>
+      <SectionLabel>System</SectionLabel>
       <Card>
         <SettingRow label="Enable Engine" description="Master switch - when off, no triggers or hotkeys will fire">
           <Toggle value={enabled} onChange={value => { setEnabled(value); saveEngine({ enabled: value }) }} />

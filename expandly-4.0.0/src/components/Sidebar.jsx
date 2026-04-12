@@ -1,13 +1,10 @@
 import { NavLink } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { useInvoke } from '../hooks/useInvoke'
 import {
     LayoutDashboard,
     FileText,
-    Zap,
-    Variable,
-    Keyboard,
-    Heart,
-    RefreshCw,
+    Zap, Variable, Keyboard, Heart,
     AlertCircle,
     Settings
 } from 'lucide-react'
@@ -63,11 +60,11 @@ function SidebarLink({ to, icon: Icon, label, hasUpdate = false }) {
 }
 
 export default function Sidebar() {
+    const invoke = useInvoke()
     const [appVersion, setAppVersion] = useState('...')
     const [hasUpdate, setHasUpdate] = useState(false)
 
     useEffect(() => {
-        const { invoke } = window.__TAURI_INTERNALS__
         invoke('get_app_version').then(async version => {
             setAppVersion(version)
             try {
