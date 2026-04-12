@@ -3,10 +3,13 @@ name: Build
 on:
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -35,6 +38,7 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
+          cache-dependency-path: expandly-4.0.0/package-lock.json
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -46,7 +50,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: ./expandly-4.0.0/src-tauri -> target
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -66,13 +70,15 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+        working-directory: ./expandly-4.0.0
 
-      - name: Build and publish Tauri app
+      - name: Build Tauri app
         id: tauri-build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: ./expandly-4.0.0
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: '[platform]-[arch]-[bundle]'
           args: ${{ matrix.args }}
