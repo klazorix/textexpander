@@ -14,6 +14,8 @@ use std::{
 
 use crate::engine::variables::today_string;
 
+const LOG_RETENTION_SECS: u64 = 7 * 24 * 60 * 60;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LogLevel {
     Errors,
@@ -61,27 +63,44 @@ impl DebugLogger {
         }
     }
 
+    fn should_log(&self, level: LogLevel) -> bool {
+        self.enabled
+            && match self.level {
+                LogLevel::Errors => matches!(level, LogLevel::Errors),
+                LogLevel::Warnings => !matches!(level, LogLevel::Verbose),
+                LogLevel::Verbose => true,
+            }
+    }
+
     pub fn error(&self, message: &str) {
-        if !self.enabled { return; }
-        self.write("ERROR", message);
+        if self.should_log(LogLevel::Errors) {
+            self.write("ERROR", message);
+        }
     }
 
     pub fn warning(&self, message: &str) {
-        if !self.enabled { return; }
-        if self.level == LogLevel::Errors { return; }
-        self.write("WARN", message);
+        if self.should_log(LogLevel::Warnings) {
+            self.write("WARN", message);
+        }
     }
 
     pub fn verbose(&self, message: &str) {
-        if !self.enabled { return; }
-        if self.level != LogLevel::Verbose { return; }
-        self.write("VERBOSE", message);
+        if self.should_log(LogLevel::Verbose) {
+            self.write("VERBOSE", message);
+        }
     }
 }
 
-fn chrono_time() -> String {
+fn unix_now_secs() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn chrono_time() -> String {
+    let secs = unix_now_secs();
     let secs_today = secs % 86400;
     format!("{:02}:{:02}:{:02}", secs_today / 3600, (secs_today % 3600) / 60, secs_today % 60)
 }
@@ -91,12 +110,7 @@ pub fn purge_old_logs(app_data_dir: &PathBuf) {
     let dir = app_data_dir.join("debug");
     if !dir.exists() { return; }
 
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now_secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let cutoff = now_secs.saturating_sub(7 * 24 * 60 * 60);
+    let cutoff = unix_now_secs().saturating_sub(LOG_RETENTION_SECS);
 
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
@@ -105,7 +119,7 @@ pub fn purge_old_logs(app_data_dir: &PathBuf) {
             if let Ok(meta) = fs::metadata(&path) {
                 if let Ok(modified) = meta.modified() {
                     let modified_secs = modified
-                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_secs();
                     if modified_secs < cutoff {

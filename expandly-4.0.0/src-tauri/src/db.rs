@@ -14,6 +14,35 @@ use crate::models::{
     CustomVariable, Expansion, GlobalStats, Hotkey, RootConfig, Trigger,
 };
 
+fn load_vec<T, F>(conn: &Connection, sql: &str, map: F) -> rusqlite::Result<Vec<T>>
+where
+    F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+{
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map([], map)?;
+    rows.collect()
+}
+
+fn load_u64_map(conn: &Connection, sql: &str) -> rusqlite::Result<HashMap<String, u64>> {
+    let mut map = HashMap::new();
+    for (key, value) in load_vec(conn, sql, |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
+    })? {
+        map.insert(key, value);
+    }
+    Ok(map)
+}
+
+fn clear_domain_tables(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM snippets", [])?;
+    conn.execute("DELETE FROM triggers", [])?;
+    conn.execute("DELETE FROM hotkeys", [])?;
+    conn.execute("DELETE FROM variables", [])?;
+    conn.execute("DELETE FROM stats_per_day", [])?;
+    conn.execute("DELETE FROM stats_per_expansion", [])?;
+    Ok(())
+}
+
 // ── Schema ────────────────────────────────────────────────────────────────
 
 pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
@@ -181,12 +210,7 @@ pub fn write_all(conn: &Connection, cfg: &RootConfig) -> rusqlite::Result<()> {
     save_config_row(conn, cfg)?;
 
     // Clear and rewrite all domain tables
-    conn.execute("DELETE FROM snippets", [])?;
-    conn.execute("DELETE FROM triggers", [])?;
-    conn.execute("DELETE FROM hotkeys", [])?;
-    conn.execute("DELETE FROM variables", [])?;
-    conn.execute("DELETE FROM stats_per_day", [])?;
-    conn.execute("DELETE FROM stats_per_expansion", [])?;
+    clear_domain_tables(conn)?;
 
     for exp in cfg.expansions.values() {
         insert_snippet(conn, exp)?;
@@ -344,16 +368,14 @@ pub fn delete_snippet(conn: &Connection, id: &str) -> rusqlite::Result<()> {
 // ── Triggers ──────────────────────────────────────────────────────────────
 
 fn load_triggers(conn: &Connection) -> rusqlite::Result<Vec<Trigger>> {
-    let mut stmt = conn.prepare("SELECT id, key, expansion_id, word_boundary FROM triggers")?;
-    let rows = stmt.query_map([], |r| {
+    load_vec(conn, "SELECT id, key, expansion_id, word_boundary FROM triggers", |r| {
         Ok(Trigger {
             id:           r.get(0)?,
             key:          r.get(1)?,
             expansion_id: r.get(2)?,
             word_boundary: r.get::<_, i64>(3)? != 0,
         })
-    })?;
-    rows.collect()
+    })
 }
 
 fn insert_trigger(conn: &Connection, t: &Trigger) -> rusqlite::Result<()> {
@@ -384,11 +406,9 @@ pub fn delete_trigger(conn: &Connection, id: &str) -> rusqlite::Result<()> {
 // ── Hotkeys ───────────────────────────────────────────────────────────────
 
 fn load_hotkeys(conn: &Connection) -> rusqlite::Result<Vec<Hotkey>> {
-    let mut stmt = conn.prepare("SELECT id, keys, expansion_id FROM hotkeys")?;
-    let rows = stmt.query_map([], |r| {
+    load_vec(conn, "SELECT id, keys, expansion_id FROM hotkeys", |r| {
         Ok(Hotkey { id: r.get(0)?, keys: r.get(1)?, expansion_id: r.get(2)? })
-    })?;
-    rows.collect()
+    })
 }
 
 fn insert_hotkey(conn: &Connection, h: &Hotkey) -> rusqlite::Result<()> {
@@ -418,11 +438,9 @@ pub fn delete_hotkey(conn: &Connection, id: &str) -> rusqlite::Result<()> {
 // ── Variables ─────────────────────────────────────────────────────────────
 
 fn load_variables(conn: &Connection) -> rusqlite::Result<Vec<CustomVariable>> {
-    let mut stmt = conn.prepare("SELECT id, name, value FROM variables")?;
-    let rows = stmt.query_map([], |r| {
+    load_vec(conn, "SELECT id, name, value FROM variables", |r| {
         Ok(CustomVariable { id: r.get(0)?, name: r.get(1)?, value: r.get(2)? })
-    })?;
-    rows.collect()
+    })
 }
 
 fn insert_variable(conn: &Connection, v: &CustomVariable) -> rusqlite::Result<()> {
@@ -450,25 +468,10 @@ pub fn delete_variable(conn: &Connection, id: &str) -> rusqlite::Result<()> {
 // ── Stats ─────────────────────────────────────────────────────────────────
 
 fn load_stats(conn: &Connection) -> rusqlite::Result<GlobalStats> {
-    // Per-day counts
-    let mut expansions_per_day: HashMap<String, u64> = HashMap::new();
-    let mut stmt = conn.prepare("SELECT date, count FROM stats_per_day")?;
-    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)))?;
-    for row in rows {
-        let (date, count) = row?;
-        expansions_per_day.insert(date, count);
-    }
-
-    // Per-expansion counts
-    let mut expansion_counts: HashMap<String, u64> = HashMap::new();
-    let mut stmt = conn.prepare("SELECT expansion_id, count FROM stats_per_expansion")?;
-    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)))?;
-    for row in rows {
-        let (id, count) = row?;
-        expansion_counts.insert(id, count);
-    }
-
-    Ok(GlobalStats { expansions_per_day, expansion_counts })
+    Ok(GlobalStats {
+        expansions_per_day: load_u64_map(conn, "SELECT date, count FROM stats_per_day")?,
+        expansion_counts: load_u64_map(conn, "SELECT expansion_id, count FROM stats_per_expansion")?,
+    })
 }
 
 pub fn save_stats(conn: &Connection, stats: &GlobalStats) -> rusqlite::Result<()> {

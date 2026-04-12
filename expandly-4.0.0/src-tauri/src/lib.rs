@@ -20,7 +20,7 @@ pub struct AppState {
     pub logger: SharedLogger,
 }
 
-fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map_err(|e| format!("Could not resolve app data directory: {e}"))
@@ -42,6 +42,74 @@ fn open_db(app: &tauri::AppHandle) -> Result<rusqlite::Connection, String> {
     }
     rusqlite::Connection::open(&path)
         .map_err(|e| format!("Could not open database: {e}"))
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn toggle_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
+}
+
+fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let quit = MenuItem::with_id(app, "quit", "Quit Expandly", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+
+    let _tray = TrayIconBuilder::with_id("expandly-tray")
+        .icon(app.default_window_icon().unwrap().clone())
+        .tooltip("Expandly")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "quit" => app.exit(0),
+            "show" => show_main_window(app),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                toggle_main_window(&tray.app_handle());
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+fn configure_main_window(app: &mut tauri::App, launch_minimised: bool, minimise_to_tray: bool) {
+    if let Some(window) = app.get_webview_window("main") {
+        if launch_minimised {
+            let _ = window.hide();
+        }
+        if minimise_to_tray {
+            let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window_clone.hide();
+                }
+            });
+        }
+    }
 }
 
 fn load_or_create_config(app: &tauri::AppHandle) -> (RootConfig, rusqlite::Connection) {
@@ -114,63 +182,8 @@ pub fn run() {
             };
 
             app.manage(AppState { config, db, logger: log });
-
-            use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-            use tauri::menu::{Menu, MenuItem};
-
-            let quit = MenuItem::with_id(app, "quit", "Quit Expandly", true, None::<&str>)?;
-            let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
-
-            let _tray = TrayIconBuilder::with_id("expandly-tray")
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Expandly")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quit" => app.exit(0),
-                    "show" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(w) = app.get_webview_window("main") {
-                            if w.is_visible().unwrap_or(false) {
-                                let _ = w.hide();
-                            } else {
-                                let _ = w.show();
-                                let _ = w.set_focus();
-                            }
-                        }
-                    }
-                })
-                .build(app)?;
-
-            if let Some(window) = app.get_webview_window("main") {
-                if launch_minimised {
-                    let _ = window.hide();
-                }
-                if minimise_to_tray {
-                    let window_clone = window.clone();
-                    window.on_window_event(move |event| {
-                        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                            api.prevent_close();
-                            let _ = window_clone.hide();
-                        }
-                    });
-                }
-            }
+            setup_tray(app)?;
+            configure_main_window(app, launch_minimised, minimise_to_tray);
 
             Ok(())
         })
@@ -210,6 +223,7 @@ pub fn run() {
             // system
             system::get_app_version,
             system::open_url,
+            system::open_debug_logs_folder,
             system::close_splash,
             system::save_sound_file,
         ])

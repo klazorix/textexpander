@@ -20,7 +20,9 @@ use sound::play_sound;
 use stats::record_stats;
 use variables::resolve_variables;
 
-// ── Snapshot ──────────────────────────────────────────────────────────────
+const RESTART_DELAY_MS: u64 = 1000;
+
+// Snapshot helpers
 
 struct EngineSnapshot {
     enabled:                bool,
@@ -54,7 +56,7 @@ impl EngineSnapshot {
     }
 }
 
-// Builds a minimal RootConfig from a snapshot, used only for resolve_variables
+// Build a minimal config snapshot for variable resolution.
 fn snap_cfg_ref(snap: &EngineSnapshot) -> RootConfig {
     RootConfig {
         version:                String::new(),
@@ -80,7 +82,164 @@ fn snap_cfg_ref(snap: &EngineSnapshot) -> RootConfig {
     }
 }
 
-// ── Entry point ───────────────────────────────────────────────────────────
+fn spawn_hotkey_expansion(
+    config: Arc<Mutex<RootConfig>>,
+    db: Arc<Mutex<rusqlite::Connection>>,
+    log: SharedLogger,
+    combo: String,
+    expansion_id: String,
+    expansion_name: String,
+    text: String,
+    delay_ms: u64,
+) {
+    thread::spawn(move || {
+        log.lock().unwrap().verbose(&format!("[engine] Hotkey fired: {expansion_name} ({combo})"));
+        thread::sleep(Duration::from_millis(delay_ms));
+        inject_text(&text);
+        record_stats(&config, &db, &expansion_id);
+    });
+}
+
+fn spawn_trigger_expansion(
+    config: Arc<Mutex<RootConfig>>,
+    db: Arc<Mutex<rusqlite::Connection>>,
+    log: SharedLogger,
+    expansion_id: String,
+    expansion_name: String,
+    text: String,
+    delete_count: usize,
+    delay_ms: u64,
+    sound_enabled: bool,
+    sound_path: Option<String>,
+) {
+    thread::spawn(move || {
+        log.lock().unwrap().verbose(&format!("[engine] Trigger fired: {expansion_name}"));
+        thread::sleep(Duration::from_millis(delay_ms));
+        delete_chars(delete_count);
+        inject_text(&text);
+        record_stats(&config, &db, &expansion_id);
+        if sound_enabled {
+            if let Some(path) = sound_path {
+                play_sound(path);
+            }
+        }
+    });
+}
+
+fn handle_hotkey(
+    key: RKey,
+    snap: &EngineSnapshot,
+    held_keys: &Arc<Mutex<Vec<String>>>,
+    config: &Arc<Mutex<RootConfig>>,
+    db: &Arc<Mutex<rusqlite::Connection>>,
+    log: &SharedLogger,
+) -> bool {
+    let held = held_keys.lock().unwrap();
+    if held.is_empty() {
+        return false;
+    }
+    if let Some(key_name) = rkey_to_name(&key) {
+        let mut parts = held.clone();
+        parts.push(key_name);
+        let combo = parts.join("+");
+        drop(held);
+
+        log.lock().unwrap().verbose(&format!("[engine] Hotkey check: combo={combo}"));
+
+        for hotkey in &snap.hotkeys {
+            if hotkey.keys.eq_ignore_ascii_case(&combo) {
+                if let Some(expansion) = snap.expansions.get(&hotkey.expansion_id) {
+                    let text = resolve_variables(&expansion.text, &snap_cfg_ref(snap));
+                    spawn_hotkey_expansion(
+                        Arc::clone(config),
+                        Arc::clone(db),
+                        Arc::clone(log),
+                        combo,
+                        hotkey.expansion_id.clone(),
+                        expansion.name.clone(),
+                        text,
+                        snap.hotkey_delay,
+                    );
+                    return true;
+                }
+
+                log.lock().unwrap().warning(&format!(
+                    "[engine] Hotkey matched combo={combo} but expansion_id={} not found",
+                    hotkey.expansion_id
+                ));
+            }
+        }
+    }
+    true
+}
+
+fn update_buffer_and_match_trigger(
+    key: RKey,
+    snap: &EngineSnapshot,
+    buffer: &Arc<Mutex<Vec<char>>>,
+    log: &SharedLogger,
+) -> Option<(String, usize, String, String)> {
+    let mut buf = buffer.lock().unwrap();
+
+    match key {
+        RKey::Backspace => {
+            buf.pop();
+        }
+        RKey::Return | RKey::Escape => {
+            buf.clear();
+        }
+        _ => match rkey_to_char(&key) {
+            Some(c) => {
+                buf.push(c);
+                while buf.len() > snap.buffer_size {
+                    buf.remove(0);
+                }
+            }
+            None => {
+                buf.clear();
+            }
+        },
+    }
+
+    let buf_str: String = buf.iter().collect();
+    let mut found = None;
+
+    'outer: for trigger in &snap.triggers {
+        if !buf_str.to_lowercase().ends_with(&trigger.key.to_lowercase()) {
+            continue;
+        }
+        if trigger.word_boundary {
+            let before = buf_str.len() - trigger.key.len();
+            if before > 0 {
+                let prev = buf_str.chars().nth(before - 1).unwrap_or(' ');
+                if !prev.is_whitespace() {
+                    continue 'outer;
+                }
+            }
+        }
+        if let Some(expansion) = snap.expansions.get(&trigger.expansion_id) {
+            found = Some((
+                resolve_variables(&expansion.text, &snap_cfg_ref(snap)),
+                trigger.key.len(),
+                trigger.expansion_id.clone(),
+                expansion.name.clone(),
+            ));
+            break;
+        }
+
+        log.lock().unwrap().warning(&format!(
+            "[engine] Trigger '{}' matched but expansion_id={} not found",
+            trigger.key, trigger.expansion_id
+        ));
+    }
+
+    if found.is_some() {
+        buf.clear();
+    }
+    found
+}
+
+// Engine entry point
 
 pub fn start(
     config: Arc<Mutex<RootConfig>>,
@@ -98,17 +257,15 @@ pub fn start(
             let db_clone     = Arc::clone(&db);
             let log_clone    = Arc::clone(&log);
 
-            let restart_delay: u64 = 1000;
-
             log.lock().unwrap().verbose("[engine] Listener starting");
 
             let result = listen(move |event: Event| {
                 match event.event_type {
 
-                    // ── Key pressed ───────────────────────────────────────
+                    // Key press handling
                     EventType::KeyPress(key) => {
 
-                        // Track modifiers — minimal lock scope
+                        // Track held modifiers with minimal lock scope
                         if let Some(modifier) = rkey_to_modifier_str(&key) {
                             let mut held = held_clone.lock().unwrap();
                             if !held.contains(&modifier.to_string()) {
@@ -117,14 +274,14 @@ pub fn start(
                             return;
                         }
 
-                        // Snapshot config — single short lock, no work inside
+                        // Snapshot helpers
                         let snap = {
                             let cfg = config_clone.lock().unwrap();
                             if !cfg.enabled { return; }
                             EngineSnapshot::from(&*cfg)
                         };
 
-                        // ── Clear buffer on window switch (Alt+Tab / Super+Tab) ──
+                        // Clear the buffer on Alt+Tab or Super+Tab when enabled
                         if snap.clear_buffer_on_switch && matches!(key, RKey::Tab) {
                             let should_clear = {
                                 let held = held_clone.lock().unwrap();
@@ -137,117 +294,44 @@ pub fn start(
                             }
                         }
 
-                        // ── Hotkey check ──────────────────────────────────
-                        {
-                            let held = held_clone.lock().unwrap();
-                            if !held.is_empty() {
-                                if let Some(key_name) = rkey_to_name(&key) {
-                                    let mut parts = held.clone();
-                                    parts.push(key_name);
-                                    let combo = parts.join("+");
-                                    drop(held);
-
-                                    log_clone.lock().unwrap().verbose(&format!("[engine] Hotkey check: combo={combo}"));
-
-                                    for hotkey in &snap.hotkeys {
-                                        if hotkey.keys.eq_ignore_ascii_case(&combo) {
-                                            if let Some(expansion) = snap.expansions.get(&hotkey.expansion_id) {
-                                                let text     = resolve_variables(&expansion.text, &snap_cfg_ref(&snap));
-                                                let exp_id   = hotkey.expansion_id.clone();
-                                                let exp_name = expansion.name.clone();
-                                                let cc       = Arc::clone(&config_clone);
-                                                let db       = Arc::clone(&db_clone);
-                                                let lc       = Arc::clone(&log_clone);
-                                                let hk_delay = snap.hotkey_delay;
-                                                thread::spawn(move || {
-                                                    lc.lock().unwrap().verbose(&format!("[engine] Hotkey fired: {exp_name} ({combo})"));
-                                                    thread::sleep(Duration::from_millis(hk_delay));
-                                                    inject_text(&text);
-                                                    record_stats(&cc, &db, &exp_id);
-                                                });
-                                                return;
-                                            } else {
-                                                log_clone.lock().unwrap().warning(&format!(
-                                                    "[engine] Hotkey matched combo={combo} but expansion_id={} not found",
-                                                    hotkey.expansion_id
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
-                                return;
-                            }
+                        // Hotkey check
+                        if handle_hotkey(
+                            key,
+                            &snap,
+                            &held_clone,
+                            &config_clone,
+                            &db_clone,
+                            &log_clone,
+                        ) {
+                            return;
                         }
 
-                        // ── Buffer update ─────────────────────────────────
-                        let matched = {
-                            let mut buf = buffer_clone.lock().unwrap();
+                        // Buffer update and trigger match
+                        let matched = update_buffer_and_match_trigger(
+                            key,
+                            &snap,
+                            &buffer_clone,
+                            &log_clone,
+                        );
 
-                            match key {
-                                RKey::Backspace             => { buf.pop(); }
-                                RKey::Return | RKey::Escape => { buf.clear(); }
-                                _ => match rkey_to_char(&key) {
-                                    Some(c) => {
-                                        buf.push(c);
-                                        while buf.len() > snap.buffer_size { buf.remove(0); }
-                                    }
-                                    None => { buf.clear(); }
-                                },
-                            }
-
-                            // ── Trigger check ─────────────────────────────
-                            let buf_str: String = buf.iter().collect();
-                            let mut found: Option<(String, usize, String, String)> = None;
-
-                            'outer: for trigger in &snap.triggers {
-                                if !buf_str.to_lowercase().ends_with(&trigger.key.to_lowercase()) { continue; }
-                                if trigger.word_boundary {
-                                    let before = buf_str.len() - trigger.key.len();
-                                    if before > 0 {
-                                        let prev = buf_str.chars().nth(before - 1).unwrap_or(' ');
-                                        if !prev.is_whitespace() { continue 'outer; }
-                                    }
-                                }
-                                if let Some(expansion) = snap.expansions.get(&trigger.expansion_id) {
-                                    let text   = resolve_variables(&expansion.text, &snap_cfg_ref(&snap));
-                                    let del    = trigger.key.len();
-                                    let exp_id = trigger.expansion_id.clone();
-                                    let exp_name = expansion.name.clone();
-                                    found = Some((text, del, exp_id, exp_name));
-                                    break;
-                                } else {
-                                    log_clone.lock().unwrap().warning(&format!(
-                                        "[engine] Trigger '{}' matched but expansion_id={} not found",
-                                        trigger.key, trigger.expansion_id
-                                    ));
-                                }
-                            }
-
-                            if found.is_some() { buf.clear(); }
-                            found
-                        };
-
-                        // ── Expand on worker thread — never blocks the hook ─
+                        // Expand on a worker thread so the hook stays responsive
                         if let Some((text, delete_count, expansion_id, exp_name)) = matched {
-                            let cc    = Arc::clone(&config_clone);
-                            let db    = Arc::clone(&db_clone);
-                            let lc    = Arc::clone(&log_clone);
-                            let delay = snap.expansion_delay;
-                            let se    = snap.sound_enabled;
-                            let sp    = snap.sound_path.clone();
-
-                            thread::spawn(move || {
-                                lc.lock().unwrap().verbose(&format!("[engine] Trigger fired: {exp_name}"));
-                                thread::sleep(Duration::from_millis(delay));
-                                delete_chars(delete_count);
-                                inject_text(&text);
-                                record_stats(&cc, &db, &expansion_id);
-                                if se { if let Some(path) = sp { play_sound(path); } }
-                            });
+                            spawn_trigger_expansion(
+                                Arc::clone(&config_clone),
+                                Arc::clone(&db_clone),
+                                Arc::clone(&log_clone),
+                                expansion_id,
+                                exp_name,
+                                text,
+                                delete_count,
+                                snap.expansion_delay,
+                                snap.sound_enabled,
+                                snap.sound_path.clone(),
+                            );
                         }
                     }
 
-                    // ── Key released ──────────────────────────────────────
+                    // Key release handling
                     EventType::KeyRelease(key) => {
                         if let Some(modifier) = rkey_to_modifier_str(&key) {
                             let mut held = held_clone.lock().unwrap();
@@ -259,9 +343,12 @@ pub fn start(
                 }
             });
 
-            log.lock().unwrap().error(&format!("[engine] Listener exited ({result:?}), restarting in {restart_delay}ms"));
-            eprintln!("[engine] listener exited ({:?}), restarting in {}ms", result, restart_delay);
-            thread::sleep(Duration::from_millis(restart_delay));
+            log.lock().unwrap().error(&format!("[engine] Listener exited ({result:?}), restarting in {RESTART_DELAY_MS}ms"));
+            eprintln!("[engine] listener exited ({:?}), restarting in {}ms", result, RESTART_DELAY_MS);
+            thread::sleep(Duration::from_millis(RESTART_DELAY_MS));
         }
     });
 }
+
+
+

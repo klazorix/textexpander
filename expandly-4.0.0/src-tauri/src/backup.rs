@@ -22,6 +22,48 @@
 
 use rusqlite::{params, Connection};
 
+fn json_sql_error(error: serde_json::Error) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(error))
+}
+
+fn collect_json_rows<F>(conn: &Connection, sql: &str, map: F) -> rusqlite::Result<Vec<serde_json::Value>>
+where
+    F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<serde_json::Value>,
+{
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map([], map)?.collect();
+    rows
+}
+
+fn collect_json_map<F>(conn: &Connection, sql: &str, mut map: F) -> rusqlite::Result<serde_json::Map<String, serde_json::Value>>
+where
+    F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<(String, serde_json::Value)>,
+{
+    let mut values = serde_json::Map::new();
+    let mut stmt = conn.prepare(sql)?;
+    for row in stmt.query_map([], |row| map(row))? {
+        let (key, value) = row?;
+        values.insert(key, value);
+    }
+    Ok(values)
+}
+
+fn write_json_array<F>(
+    root: &serde_json::Value,
+    key: &str,
+    mut write: F,
+) -> Result<(), String>
+where
+    F: FnMut(&serde_json::Value) -> Result<(), String>,
+{
+    if let Some(items) = root.get(key).and_then(|value| value.as_array()) {
+        for item in items {
+            write(item)?;
+        }
+    }
+    Ok(())
+}
+
 /// Build a merged JSON export from all DB tables.
 pub fn export_to_json(conn: &Connection) -> rusqlite::Result<String> {
     use serde_json::{json, Map, Value};
@@ -48,67 +90,41 @@ pub fn export_to_json(conn: &Connection) -> rusqlite::Result<String> {
     });
 
     // Snippets
-    let snippets: Vec<Value> = {
-        let mut stmt = conn.prepare("SELECT id, name, text FROM snippets")?;
-        let rows = stmt.query_map([], |r| Ok(json!({
+    let snippets = collect_json_rows(conn, "SELECT id, name, text FROM snippets", |r| Ok(json!({
             "id":   r.get::<_, String>(0)?,
             "name": r.get::<_, String>(1)?,
             "text": r.get::<_, String>(2)?,
-        })))?.collect::<rusqlite::Result<_>>()?;
-        rows
-    };
+        })))?;
 
     // Triggers
-    let triggers: Vec<Value> = {
-        let mut stmt = conn.prepare("SELECT id, key, expansion_id, word_boundary FROM triggers")?;
-        let rows = stmt.query_map([], |r| Ok(json!({
+    let triggers = collect_json_rows(conn, "SELECT id, key, expansion_id, word_boundary FROM triggers", |r| Ok(json!({
             "id":            r.get::<_, String>(0)?,
             "key":           r.get::<_, String>(1)?,
             "expansion_id":  r.get::<_, String>(2)?,
             "word_boundary": r.get::<_, i64>(3)? != 0,
-        })))?.collect::<rusqlite::Result<_>>()?;
-        rows
-    };
+        })))?;
 
     // Hotkeys
-    let hotkeys: Vec<Value> = {
-        let mut stmt = conn.prepare("SELECT id, keys, expansion_id FROM hotkeys")?;
-        let rows = stmt.query_map([], |r| Ok(json!({
+    let hotkeys = collect_json_rows(conn, "SELECT id, keys, expansion_id FROM hotkeys", |r| Ok(json!({
             "id":           r.get::<_, String>(0)?,
             "keys":         r.get::<_, String>(1)?,
             "expansion_id": r.get::<_, String>(2)?,
-        })))?.collect::<rusqlite::Result<_>>()?;
-        rows
-    };
+        })))?;
 
     // Variables
-    let variables: Vec<Value> = {
-        let mut stmt = conn.prepare("SELECT id, name, value FROM variables")?;
-        let rows = stmt.query_map([], |r| Ok(json!({
+    let variables = collect_json_rows(conn, "SELECT id, name, value FROM variables", |r| Ok(json!({
             "id":    r.get::<_, String>(0)?,
             "name":  r.get::<_, String>(1)?,
             "value": r.get::<_, String>(2)?,
-        })))?.collect::<rusqlite::Result<_>>()?;
-        rows
-    };
+        })))?;
 
     // Stats
-    let mut per_day: Map<String, Value> = Map::new();
-    {
-        let mut stmt = conn.prepare("SELECT date, count FROM stats_per_day")?;
-        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
-            let (date, count) = row?;
-            per_day.insert(date, count.into());
-        }
-    }
-    let mut per_expansion: Map<String, Value> = Map::new();
-    {
-        let mut stmt = conn.prepare("SELECT expansion_id, count FROM stats_per_expansion")?;
-        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
-            let (id, count) = row?;
-            per_expansion.insert(id, count.into());
-        }
-    }
+    let per_day: Map<String, Value> = collect_json_map(conn, "SELECT date, count FROM stats_per_day", |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?.into()))
+    })?;
+    let per_expansion: Map<String, Value> = collect_json_map(conn, "SELECT expansion_id, count FROM stats_per_expansion", |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?.into()))
+    })?;
 
     let export = json!({
         "version":   cfg.version,
@@ -123,8 +139,7 @@ pub fn export_to_json(conn: &Connection) -> rusqlite::Result<String> {
         }
     });
 
-    serde_json::to_string_pretty(&export)
-        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+    serde_json::to_string_pretty(&export).map_err(json_sql_error)
 }
 
 /// Import a merged JSON backup into the DB.
@@ -196,61 +211,57 @@ pub fn import_from_json(conn: &Connection, json: &str) -> Result<(), String> {
     conn.execute("DELETE FROM stats_per_expansion", []).map_err(|e| format!("{e}"))?;
 
     // ── Snippets ──────────────────────────────────────────────────────────
-    if let Some(arr) = root.get("snippets").and_then(|v| v.as_array()) {
-        for s in arr {
-            let id   = s.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-            let name = s.get("name").and_then(|v| v.as_str()).unwrap_or_default();
-            let text = s.get("text").and_then(|v| v.as_str()).unwrap_or_default();
-            if id.is_empty() { continue; }
-            conn.execute(
-                "INSERT OR REPLACE INTO snippets (id, name, text) VALUES (?1, ?2, ?3)",
-                params![id, name, text],
-            ).map_err(|e| format!("Failed to write snippet: {e}"))?;
-        }
-    }
+    write_json_array(&root, "snippets", |snippet| {
+        let id   = snippet.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+        let name = snippet.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+        let text = snippet.get("text").and_then(|v| v.as_str()).unwrap_or_default();
+        if id.is_empty() { return Ok(()); }
+        conn.execute(
+            "INSERT OR REPLACE INTO snippets (id, name, text) VALUES (?1, ?2, ?3)",
+            params![id, name, text],
+        ).map_err(|e| format!("Failed to write snippet: {e}"))?;
+        Ok(())
+    })?;
 
     // ── Triggers ──────────────────────────────────────────────────────────
-    if let Some(arr) = root.get("triggers").and_then(|v| v.as_array()) {
-        for t in arr {
-            let id            = t.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-            let key           = t.get("key").and_then(|v| v.as_str()).unwrap_or_default();
-            let expansion_id  = t.get("expansion_id").and_then(|v| v.as_str()).unwrap_or_default();
-            let word_boundary = t.get("word_boundary").and_then(|v| v.as_bool()).unwrap_or(true);
-            if id.is_empty() { continue; }
-            conn.execute(
-                "INSERT OR REPLACE INTO triggers (id, key, expansion_id, word_boundary) VALUES (?1, ?2, ?3, ?4)",
-                params![id, key, expansion_id, word_boundary as i64],
-            ).map_err(|e| format!("Failed to write trigger: {e}"))?;
-        }
-    }
+    write_json_array(&root, "triggers", |trigger| {
+        let id = trigger.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+        let key = trigger.get("key").and_then(|v| v.as_str()).unwrap_or_default();
+        let expansion_id = trigger.get("expansion_id").and_then(|v| v.as_str()).unwrap_or_default();
+        let word_boundary = trigger.get("word_boundary").and_then(|v| v.as_bool()).unwrap_or(true);
+        if id.is_empty() { return Ok(()); }
+        conn.execute(
+            "INSERT OR REPLACE INTO triggers (id, key, expansion_id, word_boundary) VALUES (?1, ?2, ?3, ?4)",
+            params![id, key, expansion_id, word_boundary as i64],
+        ).map_err(|e| format!("Failed to write trigger: {e}"))?;
+        Ok(())
+    })?;
 
     // ── Hotkeys ───────────────────────────────────────────────────────────
-    if let Some(arr) = root.get("hotkeys").and_then(|v| v.as_array()) {
-        for h in arr {
-            let id           = h.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-            let keys         = h.get("keys").and_then(|v| v.as_str()).unwrap_or_default();
-            let expansion_id = h.get("expansion_id").and_then(|v| v.as_str()).unwrap_or_default();
-            if id.is_empty() { continue; }
-            conn.execute(
-                "INSERT OR REPLACE INTO hotkeys (id, keys, expansion_id) VALUES (?1, ?2, ?3)",
-                params![id, keys, expansion_id],
-            ).map_err(|e| format!("Failed to write hotkey: {e}"))?;
-        }
-    }
+    write_json_array(&root, "hotkeys", |hotkey| {
+        let id = hotkey.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+        let keys = hotkey.get("keys").and_then(|v| v.as_str()).unwrap_or_default();
+        let expansion_id = hotkey.get("expansion_id").and_then(|v| v.as_str()).unwrap_or_default();
+        if id.is_empty() { return Ok(()); }
+        conn.execute(
+            "INSERT OR REPLACE INTO hotkeys (id, keys, expansion_id) VALUES (?1, ?2, ?3)",
+            params![id, keys, expansion_id],
+        ).map_err(|e| format!("Failed to write hotkey: {e}"))?;
+        Ok(())
+    })?;
 
     // ── Variables ─────────────────────────────────────────────────────────
-    if let Some(arr) = root.get("variables").and_then(|v| v.as_array()) {
-        for v in arr {
-            let id    = v.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-            let name  = v.get("name").and_then(|v| v.as_str()).unwrap_or_default();
-            let value = v.get("value").and_then(|v| v.as_str()).unwrap_or_default();
-            if id.is_empty() { continue; }
-            conn.execute(
-                "INSERT OR REPLACE INTO variables (id, name, value) VALUES (?1, ?2, ?3)",
-                params![id, name, value],
-            ).map_err(|e| format!("Failed to write variable: {e}"))?;
-        }
-    }
+    write_json_array(&root, "variables", |variable| {
+        let id = variable.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+        let name = variable.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+        let value = variable.get("value").and_then(|v| v.as_str()).unwrap_or_default();
+        if id.is_empty() { return Ok(()); }
+        conn.execute(
+            "INSERT OR REPLACE INTO variables (id, name, value) VALUES (?1, ?2, ?3)",
+            params![id, name, value],
+        ).map_err(|e| format!("Failed to write variable: {e}"))?;
+        Ok(())
+    })?;
 
     // ── Stats ─────────────────────────────────────────────────────────────
     if let Some(stats) = root.get("stats").and_then(|v| v.as_object()) {
