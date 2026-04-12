@@ -10,6 +10,17 @@ fn replace_config(state: &State<'_, AppState>, config: RootConfig) -> Result<(),
     Ok(())
 }
 
+fn write_and_replace_config(state: &State<'_, AppState>, config: RootConfig) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db::write_all(&db, &config).map_err(|e| e.to_string())?;
+    replace_config(state, config)
+}
+
+fn export_backup_json(state: &State<'_, AppState>) -> Result<String, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    backup::export_to_json(&db).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn get_config(state: State<'_, AppState>) -> Result<RootConfig, String> {
     Ok(state.config.lock().map_err(|e| e.to_string())?.clone())
@@ -20,9 +31,7 @@ pub fn save_config(
     new_config: RootConfig,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db::write_all(&db, &new_config).map_err(|e| e.to_string())?;
-    replace_config(&state, new_config)
+    write_and_replace_config(&state, new_config)
 }
 
 #[tauri::command]
@@ -32,10 +41,7 @@ pub async fn export_config(
 ) -> Result<(), String> {
     use tauri_plugin_dialog::DialogExt;
 
-    let json = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        backup::export_to_json(&db).map_err(|e| e.to_string())?
-    };
+    let json = export_backup_json(&state)?;
 
     let file_path = app
         .dialog()
@@ -65,8 +71,5 @@ pub fn import_config(
 
 #[tauri::command]
 pub fn reset_config(state: State<'_, AppState>) -> Result<(), String> {
-    let new_config = RootConfig::default();
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db::write_all(&db, &new_config).map_err(|e| e.to_string())?;
-    replace_config(&state, new_config)
+    write_and_replace_config(&state, RootConfig::default())
 }

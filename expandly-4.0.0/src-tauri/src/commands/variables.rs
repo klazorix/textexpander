@@ -5,6 +5,10 @@ use crate::models::CustomVariable;
 use crate::AppState;
 use crate::db;
 
+fn save_variable(db: &rusqlite::Connection, variable: &CustomVariable) -> Result<(), String> {
+    db::save_variable(db, variable).map_err(|e| e.to_string())
+}
+
 fn find_variable<'a>(config: &'a mut crate::models::RootConfig, id: &str) -> Result<&'a mut CustomVariable, String> {
     config
         .custom_variables
@@ -21,7 +25,7 @@ pub fn create_custom_variable(
 ) -> Result<CustomVariable, String> {
     let variable = CustomVariable { id: uuid::Uuid::new_v4().to_string(), name, value };
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db::save_variable(&db, &variable).map_err(|e| e.to_string())?;
+    save_variable(&db, &variable)?;
     drop(db);
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.custom_variables.push(variable.clone());
@@ -43,7 +47,7 @@ pub fn update_custom_variable(
         variable.clone()
     };
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db::save_variable(&db, &variable).map_err(|e| e.to_string())?;
+    save_variable(&db, &variable)?;
     Ok(())
 }
 

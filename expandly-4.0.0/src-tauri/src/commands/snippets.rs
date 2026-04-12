@@ -5,6 +5,10 @@ use crate::models::Expansion;
 use crate::AppState;
 use crate::db;
 
+fn save_expansion(db: &rusqlite::Connection, expansion: &Expansion) -> Result<(), String> {
+    db::save_snippet(db, expansion).map_err(|e| e.to_string())
+}
+
 fn find_expansion<'a>(
     config: &'a mut crate::models::RootConfig,
     id: &str,
@@ -23,7 +27,7 @@ pub fn create_expansion(
 ) -> Result<Expansion, String> {
     let expansion = Expansion { id: uuid::Uuid::new_v4().to_string(), name, text };
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db::save_snippet(&db, &expansion).map_err(|e| e.to_string())?;
+    save_expansion(&db, &expansion)?;
     drop(db);
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.expansions.insert(expansion.id.clone(), expansion.clone());
@@ -45,7 +49,7 @@ pub fn update_expansion(
         expansion.clone()
     };
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db::save_snippet(&db, &expansion).map_err(|e| e.to_string())?;
+    save_expansion(&db, &expansion)?;
     Ok(())
 }
 

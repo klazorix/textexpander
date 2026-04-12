@@ -2,6 +2,13 @@ use tauri::Manager;
 
 use crate::AppState;
 
+fn ensure_data_subdir(app: &tauri::AppHandle, name: &str) -> Result<std::path::PathBuf, String> {
+    let dir = crate::data_dir(app)?.join(name);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Could not create {name} directory: {e}"))?;
+    Ok(dir)
+}
+
 #[tauri::command]
 pub fn get_app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
@@ -10,6 +17,12 @@ pub fn get_app_version(app: tauri::AppHandle) -> String {
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
     open::that(url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_debug_logs_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = ensure_data_subdir(&app, "debug")?;
+    open::that(dir).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -38,16 +51,7 @@ pub fn save_sound_file(
     file_data: Vec<u8>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Could not resolve app data directory: {e}"))?;
-
-    let sounds_dir = data_dir.join("sounds");
-    std::fs::create_dir_all(&sounds_dir)
-        .map_err(|e| format!("Could not create sounds directory: {e}"))?;
-
-    let dest = sounds_dir.join(&file_name);
+    let dest = ensure_data_subdir(&app, "sounds")?.join(&file_name);
     std::fs::write(&dest, &file_data)
         .map_err(|e| format!("Could not write sound file: {e}"))?;
 

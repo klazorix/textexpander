@@ -5,6 +5,10 @@ use crate::models::Hotkey;
 use crate::AppState;
 use crate::db;
 
+fn save_hotkey(db: &rusqlite::Connection, hotkey: &Hotkey) -> Result<(), String> {
+    db::save_hotkey(db, hotkey).map_err(|e| e.to_string())
+}
+
 fn find_hotkey<'a>(config: &'a mut crate::models::RootConfig, id: &str) -> Result<&'a mut Hotkey, String> {
     config
         .hotkeys
@@ -21,7 +25,7 @@ pub fn create_hotkey(
 ) -> Result<Hotkey, String> {
     let hotkey = Hotkey { id: uuid::Uuid::new_v4().to_string(), keys, expansion_id };
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db::save_hotkey(&db, &hotkey).map_err(|e| e.to_string())?;
+    save_hotkey(&db, &hotkey)?;
     drop(db);
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.hotkeys.push(hotkey.clone());
@@ -43,7 +47,7 @@ pub fn update_hotkey(
         hotkey.clone()
     };
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db::save_hotkey(&db, &hotkey).map_err(|e| e.to_string())?;
+    save_hotkey(&db, &hotkey)?;
     Ok(())
 }
 
