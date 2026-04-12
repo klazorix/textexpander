@@ -4,9 +4,9 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './index.css'
 
-const { invoke } = window.__TAURI_INTERNALS__
-
 async function init() {
+  const { invoke } = window.__TAURI_INTERNALS__
+
   try {
     const config = await invoke('get_config')
     document.documentElement.setAttribute('data-theme', config.theme ?? 'starry-blue')
@@ -25,7 +25,6 @@ async function init() {
   setTimeout(() => {
     invoke('close_splash').catch(() => { })
   }, 500)
-  
 }
 
 init()
