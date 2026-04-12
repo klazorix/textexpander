@@ -1,0 +1,75 @@
+use tauri::State;
+
+
+use crate::models::Trigger;
+use crate::AppState;
+use crate::db;
+
+fn save_trigger(db: &rusqlite::Connection, trigger: &Trigger) -> Result<(), String> {
+    db::save_trigger(db, trigger).map_err(|e| e.to_string())
+}
+
+fn validate_key_len(key: &str, buffer_size: usize) -> Result<(), String> {
+    if key.len() <= buffer_size {
+        Ok(())
+    } else {
+        Err(format!("Trigger key cannot exceed {buffer_size} characters"))
+    }
+}
+
+#[tauri::command]
+pub fn create_trigger(
+    key: String,
+    expansion_id: String,
+    word_boundary: bool,
+    state: State<'_, AppState>,
+) -> Result<Trigger, String> {
+    let buffer_size = state.config.lock().map_err(|e| e.to_string())?.buffer_size;
+    validate_key_len(&key, buffer_size)?;
+    let trigger = Trigger { id: uuid::Uuid::new_v4().to_string(), key, expansion_id, word_boundary };
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    save_trigger(&db, &trigger)?;
+    drop(db);
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.triggers.push(trigger.clone());
+    Ok(trigger)
+}
+
+#[tauri::command]
+pub fn update_trigger(
+    id: String,
+    key: String,
+    expansion_id: String,
+    word_boundary: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let trigger = {
+        let mut config = state.config.lock().map_err(|e| e.to_string())?;
+        validate_key_len(&key, config.buffer_size)?;
+        let trigger = config
+            .triggers
+            .iter_mut()
+            .find(|trigger| trigger.id == id)
+            .ok_or_else(|| format!("Trigger '{id}' not found"))?;
+        trigger.key = key;
+        trigger.expansion_id = expansion_id;
+        trigger.word_boundary = word_boundary;
+        trigger.clone()
+    };
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    save_trigger(&db, &trigger)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_trigger(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db::delete_trigger(&db, &id).map_err(|e| e.to_string())?;
+    drop(db);
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.triggers.retain(|t| t.id != id);
+    Ok(())
+}

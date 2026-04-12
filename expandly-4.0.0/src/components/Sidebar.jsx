@@ -1,21 +1,14 @@
 import { NavLink } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { useInvoke } from '../hooks/useInvoke'
 import {
     LayoutDashboard,
     FileText,
-    Zap,
-    Variable,
-    Keyboard,
-    Heart,
-    RefreshCw,
+    Zap, Variable, Keyboard, Heart,
     AlertCircle,
     Settings
 } from 'lucide-react'
 import logo from '../../src-tauri/icons/128x128.png'
-
-const { invoke } = window.__TAURI_INTERNALS__
-
-const GITHUB_REPO = 'klazorix/expandly'
 
 const links = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -30,7 +23,13 @@ const bottomLinks = [
     { to: '/about', icon: Heart, label: 'About Expandly' },
 ]
 
-function newerVersion(latest, current) {
+const linkClass = ({ isActive }) =>
+    `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${isActive
+        ? 'bg-blue-600 text-white'
+        : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+    }`
+
+function isNewerVersion(latest, current) {
     const clean = v => v.replace(/^v/, '')
     const parse = v => {
         const str = clean(v)
@@ -50,23 +49,29 @@ function newerVersion(latest, current) {
     return false
 }
 
+function SidebarLink({ to, icon: Icon, label, hasUpdate = false }) {
+    return (
+        <NavLink key={to} to={to} end={to === '/'} className={linkClass}>
+            <Icon size={18} />
+            <span className="flex-1">{label}</span>
+            {hasUpdate && <AlertCircle size={16} className="text-orange-400 shrink-0" />}
+        </NavLink>
+    )
+}
+
 export default function Sidebar() {
+    const invoke = useInvoke()
     const [appVersion, setAppVersion] = useState('...')
     const [hasUpdate, setHasUpdate] = useState(false)
 
     useEffect(() => {
-        const { invoke } = window.__TAURI_INTERNALS__
-        invoke('get_app_version').then(v => {
-            setAppVersion(v)
-            invoke('get_config').then(async () => {
-                try {
-                    const res = await fetch('https://api.github.com/repos/klazorix/Expandly/releases/latest')
-                    const candidate = await res.json()
-                    if (candidate && newerVersion(candidate.tag_name, v)) {
-                        setHasUpdate(true)
-                    }
-                } catch { }
-            })
+        invoke('get_app_version').then(async version => {
+            setAppVersion(version)
+            try {
+                const res = await fetch('https://api.github.com/repos/klazorix/Expandly/releases/latest')
+                const candidate = await res.json()
+                setHasUpdate(Boolean(candidate?.tag_name && isNewerVersion(candidate.tag_name, version)))
+            } catch { }
         })
     }, [])
 
@@ -82,43 +87,12 @@ export default function Sidebar() {
 
             <nav className="flex flex-col flex-1">
                 <div className="flex flex-col gap-1">
-                    {links.map(({ to, icon: Icon, label }) => (
-                        <NavLink
-                            key={to}
-                            to={to}
-                            end={to === '/'}
-                            className={({ isActive }) =>
-                                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${isActive
-                                    ? 'bg-blue-600 text-white'
-                                    : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-                                }`
-                            }
-                        >
-                            <Icon size={18} />
-                            <span className="flex-1">{label}</span>
-                        </NavLink>
-                    ))}
+                    {links.map(link => <SidebarLink key={link.to} {...link} />)}
                 </div>
 
                 <div className="flex flex-col gap-1 mt-auto pt-4 border-t border-gray-800">
-                    {bottomLinks.map(({ to, icon: Icon, label }) => (
-                        <NavLink
-                            key={to}
-                            to={to}
-                            end={to === '/'}
-                            className={({ isActive }) =>
-                                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${isActive
-                                    ? 'bg-blue-600 text-white'
-                                    : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-                                }`
-                            }
-                        >
-                            <Icon size={18} />
-                            <span className="flex-1">{label}</span>
-                            {label === 'Settings' && hasUpdate && (
-                                <AlertCircle size={16} className="text-orange-400 shrink-0" />
-                            )}
-                        </NavLink>
+                    {bottomLinks.map(link => (
+                        <SidebarLink key={link.to} {...link} hasUpdate={link.label === 'Settings' && hasUpdate} />
                     ))}
                 </div>
             </nav>

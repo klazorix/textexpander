@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, X, Check, Copy, BookOpen } from 'lucide-react'
-
-const { invoke } = window.__TAURI_INTERNALS__
+import { useState } from 'react'
+import { Plus, Pencil, Trash2, Check, Copy, BookOpen, X } from 'lucide-react'
+import { useInvoke } from '../hooks/useInvoke'
+import { useConfig } from '../hooks/useConfig'
+import Modal from '../components/Modal'
 
 const BUILTIN = [
-  { token: '{date}', description: 'Today\'s date', example: '13/03/2026' },
+  { token: '{date}', description: "Today's date", example: '13/03/2026' },
   { token: '{time}', description: 'Current time', example: '14:35' },
   { token: '{datetime}', description: 'Date and time combined', example: '17/03/2026 14:35' },
   { token: '{day}', description: 'Day of the week', example: 'Friday' },
@@ -12,66 +13,41 @@ const BUILTIN = [
   { token: '{year}', description: 'Current year', example: '2026' },
   { token: '{hour}', description: 'Current hour', example: '14' },
   { token: '{minute}', description: 'Current minute', example: '35' },
-  { token: '{yesterday}', description: 'Yesterday\'s date', example: '16/03/2026' },
-  { token: '{tomorrow}', description: 'Tomorrow\'s date', example: '18/03/2026' },
+  { token: '{yesterday}', description: "Yesterday's date", example: '16/03/2026' },
+  { token: '{tomorrow}', description: "Tomorrow's date", example: '18/03/2026' },
   { token: '{greeting}', description: 'Time-based greeting', example: 'Good afternoon' },
   { token: '{clipboard}', description: 'Current clipboard contents', example: '(last copied text)' },
 ]
 
-function Modal({ title, initial, onSave, onClose }) {
-  const [name, setName] = useState(initial?.name ?? '')
-  const [value, setValue] = useState(initial?.value ?? '')
+const blankForm = { name: '', value: '' }
+const sanitizeVariableName = value => value.replace(/[^a-z0-9_]/gi, '_').toLowerCase()
 
+function VariableForm({ form, onChange }) {
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-lg shadow-2xl">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-white">{title}</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">Variable Name</label>
-            <div className="flex items-center gap-0">
-              <span className="bg-gray-700 border border-r-0 border-gray-600 rounded-l-lg px-3 py-2 text-gray-400 text-sm font-mono">{`{`}</span>
-              <input
-                className="flex-1 bg-gray-800 border border-gray-700 px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors font-mono"
-                placeholder="my_variable"
-                value={name}
-                onChange={e => setName(e.target.value.replace(/[^a-z0-9_]/gi, '_').toLowerCase())}
-              />
-              <span className="bg-gray-700 border border-l-0 border-gray-600 rounded-r-lg px-3 py-2 text-gray-400 text-sm font-mono">{`}`}</span>
-            </div>
-          </div>
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">Value</label>
-            <input
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
-              placeholder="e.g. Acme Corp"
-              value={value}
-              onChange={e => setValue(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2 mt-6">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
-            Cancel
-          </button>
-          <button
-            onClick={() => onSave({ name, value })}
-            disabled={!name.trim() || !value.trim()}
-            className="px-4 py-2 rounded-lg text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            <Check size={15} />
-            Save
-          </button>
+    <>
+      <div>
+        <label className="text-xs text-gray-400 mb-1 block">Variable Name</label>
+        <div className="flex items-center gap-0">
+          <span className="bg-gray-700 border border-r-0 border-gray-600 rounded-l-lg px-3 py-2 text-gray-400 text-sm font-mono">{`{`}</span>
+          <input
+            className="flex-1 bg-gray-800 border border-gray-700 px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors font-mono"
+            placeholder="my_variable"
+            value={form.name}
+            onChange={e => onChange({ ...form, name: sanitizeVariableName(e.target.value) })}
+          />
+          <span className="bg-gray-700 border border-l-0 border-gray-600 rounded-r-lg px-3 py-2 text-gray-400 text-sm font-mono">{`}`}</span>
         </div>
       </div>
-    </div>
+      <div>
+        <label className="text-xs text-gray-400 mb-1 block">Value</label>
+        <input
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
+          placeholder="e.g. Acme Corp"
+          value={form.value}
+          onChange={e => onChange({ ...form, value: e.target.value })}
+        />
+      </div>
+    </>
   )
 }
 
@@ -124,16 +100,16 @@ function BuiltinModal({ onClose }) {
 }
 
 export default function Variables() {
-  const [customs, setCustoms] = useState([])
+  const invoke = useInvoke()
+  const { config, reload } = useConfig()
+  const customs = config?.custom_variables ?? []
+
   const [showAdd, setShowAdd] = useState(false)
   const [editing, setEditing] = useState(null)
+  const [addForm, setAddForm] = useState(blankForm)
+  const [editForm, setEditForm] = useState(blankForm)
   const [copied, setCopied] = useState(null)
   const [showBuiltin, setShowBuiltin] = useState(false)
-
-  const load = () =>
-    invoke('get_config').then(c => setCustoms(c.custom_variables))
-
-  useEffect(() => { load() }, [])
 
   const copy = (token) => {
     navigator.clipboard.writeText(token)
@@ -141,21 +117,27 @@ export default function Variables() {
     setTimeout(() => setCopied(null), 1500)
   }
 
-  const handleAdd = async ({ name, value }) => {
-    await invoke('create_custom_variable', { name, value })
+  const handleAdd = async () => {
+    await invoke('create_custom_variable', { name: addForm.name, value: addForm.value })
     setShowAdd(false)
-    load()
+    setAddForm(blankForm)
+    reload()
   }
 
-  const handleEdit = async ({ name, value }) => {
-    await invoke('update_custom_variable', { id: editing.id, name, value })
+  const handleEdit = async () => {
+    await invoke('update_custom_variable', { id: editing.id, name: editForm.name, value: editForm.value })
     setEditing(null)
-    load()
+    reload()
   }
 
   const handleDelete = async (id) => {
     await invoke('delete_custom_variable', { id })
-    load()
+    reload()
+  }
+
+  const openEdit = (v) => {
+    setEditForm({ name: v.name, value: v.value })
+    setEditing(v)
   }
 
   return (
@@ -175,7 +157,7 @@ export default function Variables() {
             Built-in Variables
           </button>
           <button
-            onClick={() => setShowAdd(true)}
+            onClick={() => { setAddForm(blankForm); setShowAdd(true) }}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
           >
             <Plus size={16} />
@@ -201,7 +183,7 @@ export default function Variables() {
               <button onClick={() => copy(`{${v.name}}`)} className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
                 {copied === `{${v.name}}` ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
               </button>
-              <button onClick={() => setEditing(v)} className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
+              <button onClick={() => openEdit(v)} className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
                 <Pencil size={15} />
               </button>
               <button onClick={() => handleDelete(v.id)} className="p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors">
@@ -212,8 +194,28 @@ export default function Variables() {
         ))}
       </div>
 
-      {showAdd && <Modal title="New Variable" onSave={handleAdd} onClose={() => setShowAdd(false)} />}
-      {editing && <Modal title="Edit Variable" initial={editing} onSave={handleEdit} onClose={() => setEditing(null)} />}
+      {showAdd && (
+        <Modal
+          title="New Variable"
+          onClose={() => setShowAdd(false)}
+          onSave={handleAdd}
+          disabled={!addForm.name.trim() || !addForm.value.trim()}
+        >
+          <VariableForm form={addForm} onChange={setAddForm} />
+        </Modal>
+      )}
+
+      {editing && (
+        <Modal
+          title="Edit Variable"
+          onClose={() => setEditing(null)}
+          onSave={handleEdit}
+          disabled={!editForm.name.trim() || !editForm.value.trim()}
+        >
+          <VariableForm form={editForm} onChange={setEditForm} />
+        </Modal>
+      )}
+
       {showBuiltin && <BuiltinModal onClose={() => setShowBuiltin(false)} />}
     </div>
   )
