@@ -4,6 +4,9 @@ import { useInvoke } from '../hooks/useInvoke'
 import { useConfig } from '../hooks/useConfig'
 import Modal from '../components/Modal'
 
+const blankForm = { keys: '', expansion_id: '' }
+const modifierKeys = ['Control', 'Shift', 'Alt', 'Super']
+
 function KeyRecorder({ value, onChange }) {
   const [recording, setRecording] = useState(false)
   const [current, setCurrent] = useState(value || '')
@@ -13,13 +16,10 @@ function KeyRecorder({ value, onChange }) {
     const held = new Set()
     const onDown = (e) => {
       e.preventDefault()
-      const modifiers = ['Control', 'Shift', 'Alt', 'Meta']
       const key = e.key === ' ' ? 'Space' : e.key === 'Meta' ? 'Super' : e.key
       held.add(key)
-      const mods = modifiers
-        .map(m => m === 'Meta' ? 'Super' : m)
-        .filter(m => held.has(m))
-      const regular = [...held].filter(k => !['Control', 'Shift', 'Alt', 'Super'].includes(k))
+      const mods = modifierKeys.filter(modifier => held.has(modifier))
+      const regular = [...held].filter(key => !modifierKeys.includes(key))
       const combo = [...mods, ...regular].join('+')
       if (combo) setCurrent(combo)
     }
@@ -94,18 +94,17 @@ export default function Hotkeys() {
   const hotkeys = config?.hotkeys ?? []
   const snippets = config ? Object.values(config.expansions) : []
 
-  const blank = { keys: '', expansion_id: '' }
   const [showAdd, setShowAdd] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [addForm, setAddForm] = useState(blank)
-  const [editForm, setEditForm] = useState(blank)
+  const [addForm, setAddForm] = useState(blankForm)
+  const [editForm, setEditForm] = useState(blankForm)
 
   const snippetName = id => snippets.find(s => s.id === id)?.name ?? 'Unknown'
 
   const handleAdd = async () => {
     await invoke('create_hotkey', { keys: addForm.keys, expansionId: addForm.expansion_id })
     setShowAdd(false)
-    setAddForm(blank)
+    setAddForm(blankForm)
     reload()
   }
 
@@ -140,7 +139,7 @@ export default function Hotkeys() {
           <p className="text-gray-400 mt-1">{hotkeys.length} hotkey{hotkeys.length !== 1 ? 's' : ''} configured</p>
         </div>
         <button
-          onClick={() => { setAddForm(blank); setShowAdd(true) }}
+          onClick={() => { setAddForm(blankForm); setShowAdd(true) }}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
         >
           <Plus size={16} />

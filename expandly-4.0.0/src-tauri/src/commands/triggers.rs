@@ -5,6 +5,14 @@ use crate::models::Trigger;
 use crate::AppState;
 use crate::db;
 
+fn validate_key_len(key: &str, buffer_size: usize) -> Result<(), String> {
+    if key.len() <= buffer_size {
+        Ok(())
+    } else {
+        Err(format!("Trigger key cannot exceed {buffer_size} characters"))
+    }
+}
+
 #[tauri::command]
 pub fn create_trigger(
     key: String,
@@ -13,9 +21,7 @@ pub fn create_trigger(
     state: State<'_, AppState>,
 ) -> Result<Trigger, String> {
     let buffer_size = state.config.lock().map_err(|e| e.to_string())?.buffer_size;
-    if key.len() > buffer_size {
-        return Err(format!("Trigger key cannot exceed {buffer_size} characters"));
-    }
+    validate_key_len(&key, buffer_size)?;
     let trigger = Trigger { id: uuid::Uuid::new_v4().to_string(), key, expansion_id, word_boundary };
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db::save_trigger(&db, &trigger).map_err(|e| e.to_string())?;
@@ -35,14 +41,16 @@ pub fn update_trigger(
 ) -> Result<(), String> {
     let trigger = {
         let mut config = state.config.lock().map_err(|e| e.to_string())?;
-        if key.len() > config.buffer_size {
-            return Err(format!("Trigger key cannot exceed {} characters", config.buffer_size));
-        }
-        match config.triggers.iter_mut().find(|t| t.id == id) {
-            Some(t) => { t.key = key; t.expansion_id = expansion_id; t.word_boundary = word_boundary; }
-            None => return Err(format!("Trigger '{id}' not found")),
-        }
-        config.triggers.iter().find(|t| t.id == id).unwrap().clone()
+        validate_key_len(&key, config.buffer_size)?;
+        let trigger = config
+            .triggers
+            .iter_mut()
+            .find(|trigger| trigger.id == id)
+            .ok_or_else(|| format!("Trigger '{id}' not found"))?;
+        trigger.key = key;
+        trigger.expansion_id = expansion_id;
+        trigger.word_boundary = word_boundary;
+        trigger.clone()
     };
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db::save_trigger(&db, &trigger).map_err(|e| e.to_string())?;

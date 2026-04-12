@@ -1,5 +1,11 @@
 use crate::models::RootConfig;
 
+const DAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTHS: [&str; 12] = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+];
+
 pub struct DateTime {
     pub date: String,
     pub time: String,
@@ -29,14 +35,11 @@ pub fn chrono_now() -> DateTime {
     let secs_today       = secs % 86400;
     let (y, m, d)        = days_from_epoch(days_since_epoch as i64);
     let dow              = ((days_since_epoch + 3) % 7) as usize;
-    let days   = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    let months = ["January", "February", "March", "April", "May", "June",
-                  "July", "August", "September", "October", "November", "December"];
     DateTime {
         date:  format!("{:02}/{:02}/{}", d, m, y),
         time:  format!("{:02}:{:02}", secs_today / 3600, (secs_today % 3600) / 60),
-        day:   days[dow].to_string(),
-        month: months[(m - 1) as usize].to_string(),
+        day:   DAYS[dow].to_string(),
+        month: MONTHS[(m - 1) as usize].to_string(),
         year:  y.to_string(),
     }
 }
@@ -65,7 +68,7 @@ pub fn get_clipboard() -> Option<String> {
 pub fn resolve_variables(text: &str, config: &RootConfig) -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    let secs             = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     let days_since_epoch = secs / 86400;
     let secs_today       = secs % 86400;
 
@@ -81,8 +84,12 @@ pub fn resolve_variables(text: &str, config: &RootConfig) -> String {
     result = result.replace("{hour}",     &format!("{:02}", secs_today / 3600));
     result = result.replace("{minute}",   &format!("{:02}", (secs_today % 3600) / 60));
 
-    let yesterday = { let (y, m, d) = days_from_epoch(days_since_epoch as i64 - 1); format!("{:02}/{:02}/{}", d, m, y) };
-    let tomorrow  = { let (y, m, d) = days_from_epoch(days_since_epoch as i64 + 1); format!("{:02}/{:02}/{}", d, m, y) };
+    let format_day = |offset| {
+        let (year, month, day) = days_from_epoch(days_since_epoch as i64 + offset);
+        format!("{:02}/{:02}/{}", day, month, year)
+    };
+    let yesterday = format_day(-1);
+    let tomorrow = format_day(1);
     result = result.replace("{yesterday}", &yesterday);
     result = result.replace("{tomorrow}",  &tomorrow);
 

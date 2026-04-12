@@ -1,5 +1,9 @@
 use std::{thread, time::Duration};
 
+fn is_remote_path(path: &str) -> bool {
+    path.starts_with("http://") || path.starts_with("https://")
+}
+
 pub fn play_sound(path: String) {
     thread::spawn(move || {
         use rodio::{Decoder, OutputStream, Sink};
@@ -8,7 +12,7 @@ pub fn play_sound(path: String) {
         let Ok((_stream, handle)) = OutputStream::try_default() else { return };
         let Ok(sink)              = Sink::try_new(&handle)       else { return };
 
-        if path.starts_with("http://") || path.starts_with("https://") {
+        if is_remote_path(&path) {
             use std::io::{Cursor, Read};
             let Ok(response) = ureq::get(&path).call() else { return };
             let mut bytes = Vec::new();

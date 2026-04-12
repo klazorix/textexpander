@@ -5,6 +5,14 @@ use crate::models::CustomVariable;
 use crate::AppState;
 use crate::db;
 
+fn find_variable<'a>(config: &'a mut crate::models::RootConfig, id: &str) -> Result<&'a mut CustomVariable, String> {
+    config
+        .custom_variables
+        .iter_mut()
+        .find(|variable| variable.id == id)
+        .ok_or_else(|| format!("Variable '{id}' not found"))
+}
+
 #[tauri::command]
 pub fn create_custom_variable(
     name: String,
@@ -29,11 +37,10 @@ pub fn update_custom_variable(
 ) -> Result<(), String> {
     let variable = {
         let mut config = state.config.lock().map_err(|e| e.to_string())?;
-        match config.custom_variables.iter_mut().find(|v| v.id == id) {
-            Some(v) => { v.name = name; v.value = value; }
-            None => return Err(format!("Variable '{id}' not found")),
-        }
-        config.custom_variables.iter().find(|v| v.id == id).unwrap().clone()
+        let variable = find_variable(&mut config, &id)?;
+        variable.name = name;
+        variable.value = value;
+        variable.clone()
     };
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db::save_variable(&db, &variable).map_err(|e| e.to_string())?;

@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
-import { Plus, Pencil, Trash2, Check, Zap } from 'lucide-react'
+import { useState } from 'react'
+import { Plus, Pencil, Trash2, Zap } from 'lucide-react'
 import { useInvoke } from '../hooks/useInvoke'
 import { useConfig } from '../hooks/useConfig'
 import Modal from '../components/Modal'
+
+const blankForm = { key: '', expansion_id: '', word_boundary: true }
 
 function TriggerForm({ form, onChange, snippets, maxKeyLength }) {
   return (
@@ -59,18 +61,17 @@ export default function Triggers() {
   const snippets = config ? Object.values(config.expansions) : []
   const maxKeyLength = config?.buffer_size ?? 16
 
-  const blank = { key: '', expansion_id: '', word_boundary: true }
   const [showAdd, setShowAdd] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [addForm, setAddForm] = useState(blank)
-  const [editForm, setEditForm] = useState(blank)
+  const [addForm, setAddForm] = useState(blankForm)
+  const [editForm, setEditForm] = useState(blankForm)
 
   const snippetName = id => snippets.find(s => s.id === id)?.name ?? 'Unknown'
 
   const handleAdd = async () => {
     await invoke('create_trigger', { key: addForm.key, expansionId: addForm.expansion_id, wordBoundary: addForm.word_boundary })
     setShowAdd(false)
-    setAddForm(blank)
+    setAddForm(blankForm)
     reload()
   }
 
@@ -98,7 +99,7 @@ export default function Triggers() {
           <p className="text-gray-400 mt-1">{triggers.length} trigger{triggers.length !== 1 ? 's' : ''} configured</p>
         </div>
         <button
-          onClick={() => { setAddForm(blank); setShowAdd(true) }}
+          onClick={() => { setAddForm(blankForm); setShowAdd(true) }}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
         >
           <Plus size={16} />

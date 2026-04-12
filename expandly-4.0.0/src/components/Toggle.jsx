@@ -1,6 +1,7 @@
 export default function Toggle({ value, onChange }) {
   return (
     <button
+      type="button"
       onClick={() => onChange(!value)}
       className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${value ? 'bg-blue-600' : 'bg-gray-600'}`}
     >

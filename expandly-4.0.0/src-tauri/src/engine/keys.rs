@@ -1,26 +1,28 @@
 use rdev::Key as RKey;
 
 pub fn rkey_to_char(key: &RKey) -> Option<char> {
+    use RKey::*;
+
     match key {
-        RKey::KeyA => Some('a'), RKey::KeyB => Some('b'), RKey::KeyC => Some('c'),
-        RKey::KeyD => Some('d'), RKey::KeyE => Some('e'), RKey::KeyF => Some('f'),
-        RKey::KeyG => Some('g'), RKey::KeyH => Some('h'), RKey::KeyI => Some('i'),
-        RKey::KeyJ => Some('j'), RKey::KeyK => Some('k'), RKey::KeyL => Some('l'),
-        RKey::KeyM => Some('m'), RKey::KeyN => Some('n'), RKey::KeyO => Some('o'),
-        RKey::KeyP => Some('p'), RKey::KeyQ => Some('q'), RKey::KeyR => Some('r'),
-        RKey::KeyS => Some('s'), RKey::KeyT => Some('t'), RKey::KeyU => Some('u'),
-        RKey::KeyV => Some('v'), RKey::KeyW => Some('w'), RKey::KeyX => Some('x'),
-        RKey::KeyY => Some('y'), RKey::KeyZ => Some('z'),
-        RKey::Num0 => Some('0'), RKey::Num1 => Some('1'), RKey::Num2 => Some('2'),
-        RKey::Num3 => Some('3'), RKey::Num4 => Some('4'), RKey::Num5 => Some('5'),
-        RKey::Num6 => Some('6'), RKey::Num7 => Some('7'), RKey::Num8 => Some('8'),
-        RKey::Num9 => Some('9'),
-        RKey::Slash        => Some('/'), RKey::BackSlash    => Some('\\'),
-        RKey::Dot          => Some('.'), RKey::Comma        => Some(','),
-        RKey::SemiColon    => Some(';'), RKey::Quote        => Some('\''),
-        RKey::LeftBracket  => Some('['), RKey::RightBracket => Some(']'),
-        RKey::Minus        => Some('-'), RKey::Equal        => Some('='),
-        RKey::BackQuote    => Some('`'), RKey::Space        => Some(' '),
+        KeyA => Some('a'), KeyB => Some('b'), KeyC => Some('c'),
+        KeyD => Some('d'), KeyE => Some('e'), KeyF => Some('f'),
+        KeyG => Some('g'), KeyH => Some('h'), KeyI => Some('i'),
+        KeyJ => Some('j'), KeyK => Some('k'), KeyL => Some('l'),
+        KeyM => Some('m'), KeyN => Some('n'), KeyO => Some('o'),
+        KeyP => Some('p'), KeyQ => Some('q'), KeyR => Some('r'),
+        KeyS => Some('s'), KeyT => Some('t'), KeyU => Some('u'),
+        KeyV => Some('v'), KeyW => Some('w'), KeyX => Some('x'),
+        KeyY => Some('y'), KeyZ => Some('z'),
+        Num0 => Some('0'), Num1 => Some('1'), Num2 => Some('2'),
+        Num3 => Some('3'), Num4 => Some('4'), Num5 => Some('5'),
+        Num6 => Some('6'), Num7 => Some('7'), Num8 => Some('8'),
+        Num9 => Some('9'),
+        Slash => Some('/'), BackSlash => Some('\\'),
+        Dot => Some('.'), Comma => Some(','),
+        SemiColon => Some(';'), Quote => Some('\''),
+        LeftBracket => Some('['), RightBracket => Some(']'),
+        Minus => Some('-'), Equal => Some('='),
+        BackQuote => Some('`'), Space => Some(' '),
         _ => None,
     }
 }

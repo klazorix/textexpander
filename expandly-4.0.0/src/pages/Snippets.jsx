@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { Plus, Pencil, Trash2, Check, FileText } from 'lucide-react'
+import { Plus, Pencil, Trash2, FileText } from 'lucide-react'
 import { useInvoke } from '../hooks/useInvoke'
 import { useConfig } from '../hooks/useConfig'
 import Modal from '../components/Modal'
+
+const blankForm = { name: '', text: '' }
 
 function SnippetForm({ initial, onChange }) {
   return (
@@ -37,13 +39,13 @@ export default function Snippets() {
 
   const [showAdd, setShowAdd] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [addForm, setAddForm] = useState({ name: '', text: '' })
-  const [editForm, setEditForm] = useState({ name: '', text: '' })
+  const [addForm, setAddForm] = useState(blankForm)
+  const [editForm, setEditForm] = useState(blankForm)
 
   const handleAdd = async () => {
     await invoke('create_expansion', { name: addForm.name, text: addForm.text })
     setShowAdd(false)
-    setAddForm({ name: '', text: '' })
+    setAddForm(blankForm)
     reload()
   }
 
@@ -72,7 +74,7 @@ export default function Snippets() {
           <p className="text-gray-400 mt-1">{expansions.length} snippet{expansions.length !== 1 ? 's' : ''} saved</p>
         </div>
         <button
-          onClick={() => { setAddForm({ name: '', text: '' }); setShowAdd(true) }}
+          onClick={() => { setAddForm(blankForm); setShowAdd(true) }}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
         >
           <Plus size={16} />

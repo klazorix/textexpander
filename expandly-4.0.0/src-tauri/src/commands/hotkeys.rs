@@ -5,6 +5,14 @@ use crate::models::Hotkey;
 use crate::AppState;
 use crate::db;
 
+fn find_hotkey<'a>(config: &'a mut crate::models::RootConfig, id: &str) -> Result<&'a mut Hotkey, String> {
+    config
+        .hotkeys
+        .iter_mut()
+        .find(|hotkey| hotkey.id == id)
+        .ok_or_else(|| format!("Hotkey '{id}' not found"))
+}
+
 #[tauri::command]
 pub fn create_hotkey(
     keys: String,
@@ -29,11 +37,10 @@ pub fn update_hotkey(
 ) -> Result<(), String> {
     let hotkey = {
         let mut config = state.config.lock().map_err(|e| e.to_string())?;
-        match config.hotkeys.iter_mut().find(|h| h.id == id) {
-            Some(h) => { h.keys = keys; h.expansion_id = expansion_id; }
-            None => return Err(format!("Hotkey '{id}' not found")),
-        }
-        config.hotkeys.iter().find(|h| h.id == id).unwrap().clone()
+        let hotkey = find_hotkey(&mut config, &id)?;
+        hotkey.keys = keys;
+        hotkey.expansion_id = expansion_id;
+        hotkey.clone()
     };
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db::save_hotkey(&db, &hotkey).map_err(|e| e.to_string())?;

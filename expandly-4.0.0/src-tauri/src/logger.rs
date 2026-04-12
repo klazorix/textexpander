@@ -48,20 +48,14 @@ pub struct DebugLogger {
 impl DebugLogger {
     pub fn new(enabled: bool, level: LogLevel, app_data_dir: PathBuf) -> Self {
         let dir = app_data_dir.join("debug");
-        if enabled {
-            let _ = fs::create_dir_all(&dir);
-        }
+        if enabled { let _ = fs::create_dir_all(&dir); }
         Self { enabled, level, dir }
     }
 
     fn write(&self, label: &str, message: &str) {
         if !self.enabled { return; }
         let path = self.dir.join(format!("{}.log", today_string()));
-        let line = format!("[{}] [{}] {}\n",
-            chrono_time(),
-            label,
-            message,
-        );
+        let line = format!("[{}] [{}] {}\n", chrono_time(), label, message);
         if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
             let _ = file.write_all(line.as_bytes());
         }
@@ -87,13 +81,9 @@ impl DebugLogger {
 
 fn chrono_time() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs      = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     let secs_today = secs % 86400;
-    format!("{:02}:{:02}:{:02}",
-        secs_today / 3600,
-        (secs_today % 3600) / 60,
-        secs_today % 60,
-    )
+    format!("{:02}:{:02}:{:02}", secs_today / 3600, (secs_today % 3600) / 60, secs_today % 60)
 }
 
 /// Purge log files older than 7 days from the debug directory.

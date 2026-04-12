@@ -21,10 +21,7 @@ pub fn update_track_stats(
 
 #[tauri::command]
 pub fn reset_stats(state: State<'_, AppState>) -> Result<(), String> {
-    {
-        let mut config = state.config.lock().map_err(|e| e.to_string())?;
-        config.stats = crate::models::GlobalStats::default();
-    }
+    state.config.lock().map_err(|e| e.to_string())?.stats = crate::models::GlobalStats::default();
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.execute("DELETE FROM stats_per_day", []).map_err(|e| e.to_string())?;
     db.execute("DELETE FROM stats_per_expansion", []).map_err(|e| e.to_string())?;

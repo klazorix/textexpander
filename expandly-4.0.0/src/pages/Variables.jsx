@@ -19,6 +19,9 @@ const BUILTIN = [
   { token: '{clipboard}', description: 'Current clipboard contents', example: '(last copied text)' },
 ]
 
+const blankForm = { name: '', value: '' }
+const sanitizeVariableName = value => value.replace(/[^a-z0-9_]/gi, '_').toLowerCase()
+
 function VariableForm({ form, onChange }) {
   return (
     <>
@@ -30,7 +33,7 @@ function VariableForm({ form, onChange }) {
             className="flex-1 bg-gray-800 border border-gray-700 px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors font-mono"
             placeholder="my_variable"
             value={form.name}
-            onChange={e => onChange({ ...form, name: e.target.value.replace(/[^a-z0-9_]/gi, '_').toLowerCase() })}
+            onChange={e => onChange({ ...form, name: sanitizeVariableName(e.target.value) })}
           />
           <span className="bg-gray-700 border border-l-0 border-gray-600 rounded-r-lg px-3 py-2 text-gray-400 text-sm font-mono">{`}`}</span>
         </div>
@@ -101,11 +104,10 @@ export default function Variables() {
   const { config, reload } = useConfig()
   const customs = config?.custom_variables ?? []
 
-  const blank = { name: '', value: '' }
   const [showAdd, setShowAdd] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [addForm, setAddForm] = useState(blank)
-  const [editForm, setEditForm] = useState(blank)
+  const [addForm, setAddForm] = useState(blankForm)
+  const [editForm, setEditForm] = useState(blankForm)
   const [copied, setCopied] = useState(null)
   const [showBuiltin, setShowBuiltin] = useState(false)
 
@@ -118,7 +120,7 @@ export default function Variables() {
   const handleAdd = async () => {
     await invoke('create_custom_variable', { name: addForm.name, value: addForm.value })
     setShowAdd(false)
-    setAddForm(blank)
+    setAddForm(blankForm)
     reload()
   }
 
@@ -155,7 +157,7 @@ export default function Variables() {
             Built-in Variables
           </button>
           <button
-            onClick={() => { setAddForm(blank); setShowAdd(true) }}
+            onClick={() => { setAddForm(blankForm); setShowAdd(true) }}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
           >
             <Plus size={16} />

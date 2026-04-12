@@ -22,7 +22,7 @@ pub fn close_splash(app: tauri::AppHandle) -> Result<(), String> {
             .state::<AppState>()
             .config
             .lock()
-            .unwrap()
+            .map_err(|e| e.to_string())?
             .launch_minimised;
         if !minimised {
             main.show().map_err(|e| e.to_string())?;

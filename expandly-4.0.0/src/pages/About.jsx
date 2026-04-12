@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react'
 import { Github, BookOpen, ExternalLink, X, Heart } from 'lucide-react'
 import logo from '../../src-tauri/icons/128x128.png'
 
+const contributors = [
+  { name: 'klazorix', role: 'Lead Developer & Maintainer' },
+  { name: 'encryptednoobi', role: 'Logo Designer' },
+]
+
 function ContributorCard({ name, role, open }) {
   const [avatar, setAvatar] = useState(null)
 
@@ -41,18 +46,15 @@ export default function About() {
   const [showLicense, setShowLicense] = useState(false)
 
   useEffect(() => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    invoke('get_app_version').then(setAppVersion)
+    window.__TAURI_INTERNALS__.invoke('get_app_version').then(setAppVersion)
   }, [])
 
   const majorVersion = appVersion.split('.')[0]
 
-  const open = (url) => {
-    const { invoke } = window.__TAURI_INTERNALS__
-    invoke('open_url', { url }).catch(() => {
+  const open = url =>
+    window.__TAURI_INTERNALS__.invoke('open_url', { url }).catch(() => {
       window.open(url, '_blank')
     })
-  }
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -95,14 +97,9 @@ export default function About() {
           Contributors
         </p>
         <div className="flex flex-col gap-2">
-          <div className="flex flex-col gap-2">
-            {[
-              { name: 'klazorix', role: 'Lead Developer & Maintainer' },
-              { name: 'encryptednoobi', role: 'Logo Designer' },
-            ].map(c => (
-              <ContributorCard key={c.name} name={c.name} role={c.role} open={open} />
-            ))}
-          </div>
+          {contributors.map(contributor => (
+            <ContributorCard key={contributor.name} {...contributor} open={open} />
+          ))}
         </div>
       </div>
 

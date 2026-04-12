@@ -5,6 +5,11 @@ use crate::AppState;
 use crate::db;
 use crate::backup;
 
+fn replace_config(state: &State<'_, AppState>, config: RootConfig) -> Result<(), String> {
+    *state.config.lock().map_err(|e| e.to_string())? = config;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_config(state: State<'_, AppState>) -> Result<RootConfig, String> {
     Ok(state.config.lock().map_err(|e| e.to_string())?.clone())
@@ -17,10 +22,7 @@ pub fn save_config(
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db::write_all(&db, &new_config).map_err(|e| e.to_string())?;
-    drop(db);
-    let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    *config = new_config;
-    Ok(())
+    replace_config(&state, new_config)
 }
 
 #[tauri::command]
@@ -58,10 +60,7 @@ pub fn import_config(
     let db = state.db.lock().map_err(|e| e.to_string())?;
     backup::import_from_json(&db, &json)?;
     let new_config = db::load_all(&db).map_err(|e| e.to_string())?;
-    drop(db);
-    let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    *config = new_config;
-    Ok(())
+    replace_config(&state, new_config)
 }
 
 #[tauri::command]
@@ -69,8 +68,5 @@ pub fn reset_config(state: State<'_, AppState>) -> Result<(), String> {
     let new_config = RootConfig::default();
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db::write_all(&db, &new_config).map_err(|e| e.to_string())?;
-    drop(db);
-    let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    *config = new_config;
-    Ok(())
+    replace_config(&state, new_config)
 }

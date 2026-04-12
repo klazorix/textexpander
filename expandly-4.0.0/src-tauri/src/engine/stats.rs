@@ -13,7 +13,7 @@ pub fn record_stats(
     expansion_id: &str,
 ) {
     let config = Arc::clone(config);
-    let db     = Arc::clone(db);
+    let db = Arc::clone(db);
     let exp_id = expansion_id.to_string();
     thread::spawn(move || {
         let mut cfg = config.lock().unwrap();

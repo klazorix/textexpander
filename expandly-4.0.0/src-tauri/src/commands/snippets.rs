@@ -5,6 +5,16 @@ use crate::models::Expansion;
 use crate::AppState;
 use crate::db;
 
+fn find_expansion<'a>(
+    config: &'a mut crate::models::RootConfig,
+    id: &str,
+) -> Result<&'a mut Expansion, String> {
+    config
+        .expansions
+        .get_mut(id)
+        .ok_or_else(|| format!("Expansion '{id}' not found"))
+}
+
 #[tauri::command]
 pub fn create_expansion(
     name: String,
@@ -29,11 +39,10 @@ pub fn update_expansion(
 ) -> Result<(), String> {
     let expansion = {
         let mut config = state.config.lock().map_err(|e| e.to_string())?;
-        match config.expansions.get_mut(&id) {
-            Some(exp) => { exp.name = name; exp.text = text; }
-            None => return Err(format!("Expansion '{id}' not found")),
-        }
-        config.expansions[&id].clone()
+        let expansion = find_expansion(&mut config, &id)?;
+        expansion.name = name;
+        expansion.text = text;
+        expansion.clone()
     };
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db::save_snippet(&db, &expansion).map_err(|e| e.to_string())?;

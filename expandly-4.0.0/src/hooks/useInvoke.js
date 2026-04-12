@@ -1,3 +1,1 @@
-export function useInvoke() {
-  return window.__TAURI_INTERNALS__.invoke
-}
+export const useInvoke = () => window.__TAURI_INTERNALS__.invoke
