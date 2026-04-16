@@ -48,9 +48,9 @@ jobs:
 
           | Field | Value |
           | --- | --- |
-          | Platform | `${{ matrix.platform }}` |
-          | Target | `$target` |
-          | Artifact | `${{ matrix.artifact_name }}` |
+          | Platform | ${{ matrix.platform }} |
+          | Target | $target |
+          | Artifact | ${{ matrix.artifact_name }} |
           | Current stage | Checkout |
 
           ### Progress
@@ -178,10 +178,10 @@ jobs:
           "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           if ($files) {
             $files | ForEach-Object {
-              "- `$($_.FullName.Replace((Get-Location).Path + [IO.Path]::DirectorySeparatorChar, ''))`"
+              "- $($_.FullName.Replace((Get-Location).Path + [IO.Path]::DirectorySeparatorChar, ''))"
             } | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           } else {
-            "No bundle files found under `$root`." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "No bundle files found under $root." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
 
       - name: Upload build artifacts
@@ -206,6 +206,6 @@ jobs:
           - [x] Artifacts uploaded
 
           ### Uploaded artifact
-          - `${{ matrix.artifact_name }}`
-          - Source path: `${{ matrix.artifact_path }}`
+          - ${{ matrix.artifact_name }}
+          - Source path: ${{ matrix.artifact_path }}
           "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
