@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useInvoke } from '../hooks/useInvoke'
+import Logo from './Logo'
 import {
     LayoutDashboard,
     FileText,
@@ -8,7 +9,6 @@ import {
     AlertCircle,
     Settings
 } from 'lucide-react'
-import logo from '../../src-tauri/icons/128x128.png'
 
 const links = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -78,7 +78,7 @@ export default function Sidebar() {
     return (
         <aside className="w-56 h-screen bg-gray-900 border-r border-gray-800 flex flex-col py-6 px-3 shrink-0">
             <div className="mb-8 px-3 flex items-center gap-3">
-                <img src={logo} alt="Expandly" className="w-8 h-8 rounded-lg shrink-0" />
+                <Logo className="w-8 h-8 shrink-0" />
                 <div>
                     <h1 className="text-sm font-bold text-white">Expandly {appVersion.split('.')[0]}</h1>
                     <p className="text-xs text-gray-500">v{appVersion}</p>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Github, BookOpen, ExternalLink, X, Heart } from 'lucide-react'
-import logo from '../../src-tauri/icons/128x128.png'
+import Logo from '../components/Logo'
 
 const contributors = [
   { name: 'klazorix', role: 'Lead Developer & Maintainer' },
@@ -60,11 +60,7 @@ export default function About() {
     <div className="max-w-2xl mx-auto">
 
       <div className="flex flex-col items-center text-center py-10 mb-8">
-        <img
-          src={logo}
-          alt="Expandly"
-          className="w-20 h-20 rounded-2xl mb-5 shadow-lg"
-        />
+        <Logo className="w-20 h-20 mb-5" />
         <h1 className="text-3xl font-bold text-white mb-1">
           Expandly {majorVersion}
         </h1>
