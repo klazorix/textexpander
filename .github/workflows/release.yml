@@ -66,6 +66,7 @@ jobs:
             curl \
             wget \
             file \
+            libasound2-dev \
             libssl-dev \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
