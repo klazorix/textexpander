@@ -38,6 +38,11 @@ struct EngineSnapshot {
     custom_variables:       Vec<crate::models::CustomVariable>,
 }
 
+#[derive(Default)]
+struct PendingTrigger {
+    trailing_spaces: usize,
+}
+
 impl EngineSnapshot {
     fn from(cfg: &RootConfig) -> Self {
         Self {
@@ -104,6 +109,7 @@ fn spawn_trigger_expansion(
     config: Arc<Mutex<RootConfig>>,
     db: Arc<Mutex<rusqlite::Connection>>,
     log: SharedLogger,
+    pending_trigger: Arc<Mutex<Option<PendingTrigger>>>,
     expansion_id: String,
     expansion_name: String,
     text: String,
@@ -115,7 +121,12 @@ fn spawn_trigger_expansion(
     thread::spawn(move || {
         log.lock().unwrap().verbose(&format!("[engine] Trigger fired: {expansion_name}"));
         thread::sleep(Duration::from_millis(delay_ms));
-        delete_chars(delete_count);
+        let extra_delete_count = pending_trigger
+            .lock()
+            .unwrap()
+            .take()
+            .map_or(0, |pending| pending.trailing_spaces);
+        delete_chars(delete_count + extra_delete_count);
         inject_text(&text);
         record_stats(&config, &db, &expansion_id);
         if sound_enabled {
@@ -171,6 +182,23 @@ fn handle_hotkey(
         }
     }
     true
+}
+
+fn track_pending_trigger_space(
+    key: RKey,
+    pending_trigger: &Arc<Mutex<Option<PendingTrigger>>>,
+) -> bool {
+    if !matches!(key, RKey::Space) {
+        return false;
+    }
+
+    let mut pending = pending_trigger.lock().unwrap();
+    if let Some(pending) = pending.as_mut() {
+        pending.trailing_spaces += 1;
+        return true;
+    }
+
+    false
 }
 
 fn update_buffer_and_match_trigger(
@@ -250,9 +278,11 @@ pub fn start(
         loop {
             let buffer:    Arc<Mutex<Vec<char>>>   = Arc::new(Mutex::new(Vec::new()));
             let held_keys: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+            let pending_trigger: Arc<Mutex<Option<PendingTrigger>>> = Arc::new(Mutex::new(None));
 
             let buffer_clone = Arc::clone(&buffer);
             let held_clone   = Arc::clone(&held_keys);
+            let pending_trigger_clone = Arc::clone(&pending_trigger);
             let config_clone = Arc::clone(&config);
             let db_clone     = Arc::clone(&db);
             let log_clone    = Arc::clone(&log);
@@ -280,6 +310,10 @@ pub fn start(
                             if !cfg.enabled { return; }
                             EngineSnapshot::from(&*cfg)
                         };
+
+                        if track_pending_trigger_space(key, &pending_trigger_clone) {
+                            return;
+                        }
 
                         // Clear the buffer on Alt+Tab or Super+Tab when enabled
                         if snap.clear_buffer_on_switch && matches!(key, RKey::Tab) {
@@ -316,10 +350,12 @@ pub fn start(
 
                         // Expand on a worker thread so the hook stays responsive
                         if let Some((text, delete_count, expansion_id, exp_name)) = matched {
+                            *pending_trigger_clone.lock().unwrap() = Some(PendingTrigger::default());
                             spawn_trigger_expansion(
                                 Arc::clone(&config_clone),
                                 Arc::clone(&db_clone),
                                 Arc::clone(&log_clone),
+                                Arc::clone(&pending_trigger_clone),
                                 expansion_id,
                                 exp_name,
                                 text,
