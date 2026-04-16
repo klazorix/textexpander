@@ -5,8 +5,11 @@ This is the official development branch for Expandly 4, where our all new redesi
 _Compared to `expandly-2`_
 - Brand new user interface
 - Newly introduced one for many architecture (allowing for multiple triggers/hotkeys to be tied to one snippet)
-- A more organised data saving system (JSON UUID based architecture)
+- A more organised data saving system with SQLite persistence and migration from the older JSON config format
 - Hotkeys
+- Triggers with advanced matching options
+  - Word boundary matching
+  - Optional case-sensitive matching
 - New settings
   - Master switch
   - Play sound on expansion
@@ -15,14 +18,18 @@ _Compared to `expandly-2`_
   - Minimise to tray on close
   - Export/Import Config
   - Reset all data
-  - Play Sound on Expansion
   - Buffer Size
   - Clear Buffer on Window Switch
   - Expansion Delay
   - Hotkey Inject Delay
+  - Debug logging controls
+  - Open debug logs folder
+  - Built-in update checker
 - Rebranding from TextExpander to Expandly
 - Custom variables (and more functional built-in variables)
 - A dashboard page for a general overview of statistics and engine activity
+- Statistics tracking with per-day and per-snippet counts
+- System tray support
 
 # 📂 Download
 You can install Expandly 4 Beta Release 4 [here](https://github.com/klazorix/expandly/releases/tag/v4.0.0-beta4).
