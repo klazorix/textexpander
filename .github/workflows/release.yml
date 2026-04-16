@@ -39,79 +39,27 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - name: Start job summary
-        shell: pwsh
-        run: |
-          $target = if ('${{ matrix.target }}') { '${{ matrix.target }}' } else { 'native' }
-          @"
-          ## Build Job
-
-          | Field | Value |
-          | --- | --- |
-          | Platform | ${{ matrix.platform }} |
-          | Target | $target |
-          | Artifact | ${{ matrix.artifact_name }} |
-          | Current stage | Checkout |
-
-          ### Progress
-          - [ ] Checkout
-          - [ ] Tooling setup
-          - [ ] Dependencies installed
-          - [ ] Build complete
-          - [ ] Artifacts uploaded
-          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
-
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v6
 
-      - name: Summarize checkout
-        shell: pwsh
-        run: |
-          @"
-          ### Stage update
-          Current stage: Tooling setup
-
-          ### Progress
-          - [x] Checkout
-          - [ ] Tooling setup
-          - [ ] Dependencies installed
-          - [ ] Build complete
-          - [ ] Artifacts uploaded
-          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-
-      - name: Setup Node
+      - name: Set up Node
         uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: npm
           cache-dependency-path: expandly-4.0.0/package-lock.json
 
-      - name: Install Rust
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Add Rust target
         if: matrix.target != ''
         run: rustup target add ${{ matrix.target }}
 
-      - name: Rust cache
+      - name: Restore Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ./expandly-4.0.0/src-tauri -> target
-
-      - name: Summarize tooling setup
-        shell: pwsh
-        run: |
-          @"
-          ### Stage update
-          Current stage: Dependencies
-
-          ### Progress
-          - [x] Checkout
-          - [x] Tooling setup
-          - [ ] Dependencies installed
-          - [ ] Build complete
-          - [ ] Artifacts uploaded
-          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -134,21 +82,6 @@ jobs:
         run: npm ci
         working-directory: ./expandly-4.0.0
 
-      - name: Summarize dependency install
-        shell: pwsh
-        run: |
-          @"
-          ### Stage update
-          Current stage: Build
-
-          ### Progress
-          - [x] Checkout
-          - [x] Tooling setup
-          - [x] Dependencies installed
-          - [ ] Build complete
-          - [ ] Artifacts uploaded
-          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-
       - name: Build Tauri app
         id: tauri-build
         uses: tauri-apps/tauri-action@v0
@@ -158,32 +91,6 @@ jobs:
           projectPath: ./expandly-4.0.0
           args: ${{ matrix.args }}
 
-      - name: Summarize build output
-        shell: pwsh
-        run: |
-          $root = '${{ matrix.artifact_root }}'
-          $files = Get-ChildItem -Path $root -Recurse -File | Select-Object -First 12
-          @"
-          ### Stage update
-          Current stage: Artifact upload
-
-          ### Progress
-          - [x] Checkout
-          - [x] Tooling setup
-          - [x] Dependencies installed
-          - [x] Build complete
-          - [ ] Artifacts uploaded
-
-          ### Bundle preview
-          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          if ($files) {
-            $files | ForEach-Object {
-              "- $($_.FullName.Replace((Get-Location).Path + [IO.Path]::DirectorySeparatorChar, ''))"
-            } | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          } else {
-            "No bundle files found under $root." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          }
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -191,12 +98,21 @@ jobs:
           path: ${{ matrix.artifact_path }}
           if-no-files-found: error
 
-      - name: Summarize uploaded artifact
+      - name: Write final job summary
         shell: pwsh
         run: |
+          $target = if ('${{ matrix.target }}') { '${{ matrix.target }}' } else { 'native' }
+          $root = '${{ matrix.artifact_root }}'
+          $files = Get-ChildItem -Path $root -Recurse -File | Select-Object -First 12
           @"
-          ### Stage update
-          Current stage: Complete
+          ## Build Job
+
+          | Field | Value |
+          | --- | --- |
+          | Platform | ${{ matrix.platform }} |
+          | Target | $target |
+          | Artifact | ${{ matrix.artifact_name }} |
+          | Current stage | Complete |
 
           ### Progress
           - [x] Checkout
@@ -205,6 +121,17 @@ jobs:
           - [x] Build complete
           - [x] Artifacts uploaded
 
+          ### Bundle preview
+
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          if ($files) {
+            $files | ForEach-Object {
+              "- $($_.FullName.Replace((Get-Location).Path + [IO.Path]::DirectorySeparatorChar, ''))"
+            } | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } else {
+            "No bundle files found under $root." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          @"
           ### Uploaded artifact
           - ${{ matrix.artifact_name }}
           - Source path: ${{ matrix.artifact_path }}
