@@ -14,7 +14,7 @@ use rdev::{listen, Event, EventType, Key as RKey};
 
 use crate::models::RootConfig;
 use crate::logger::SharedLogger;
-use keys::{rkey_to_char, rkey_to_modifier_str, rkey_to_name};
+use keys::{rkey_to_buffer_char, rkey_to_modifier_str, rkey_to_name};
 use injection::{delete_chars, inject_text};
 use sound::play_sound;
 use stats::record_stats;
@@ -205,6 +205,8 @@ fn update_buffer_and_match_trigger(
     key: RKey,
     snap: &EngineSnapshot,
     buffer: &Arc<Mutex<Vec<char>>>,
+    shift_active: bool,
+    caps_lock_on: bool,
     log: &SharedLogger,
 ) -> Option<(String, usize, String, String)> {
     let mut buf = buffer.lock().unwrap();
@@ -213,19 +215,27 @@ fn update_buffer_and_match_trigger(
         RKey::Backspace => {
             buf.pop();
         }
-        RKey::Return | RKey::Escape => {
+        RKey::Return
+        | RKey::Tab
+        | RKey::UpArrow
+        | RKey::DownArrow
+        | RKey::LeftArrow
+        | RKey::RightArrow
+        | RKey::Home
+        | RKey::End
+        | RKey::PageUp
+        | RKey::PageDown
+        | RKey::Delete => {
             buf.clear();
         }
-        _ => match rkey_to_char(&key) {
+        _ => match rkey_to_buffer_char(&key, shift_active, caps_lock_on) {
             Some(c) => {
                 buf.push(c);
                 while buf.len() > snap.buffer_size {
                     buf.remove(0);
                 }
             }
-            None => {
-                buf.clear();
-            }
+            None => {}
         },
     }
 
@@ -278,10 +288,12 @@ pub fn start(
         loop {
             let buffer:    Arc<Mutex<Vec<char>>>   = Arc::new(Mutex::new(Vec::new()));
             let held_keys: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+            let caps_lock_on: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
             let pending_trigger: Arc<Mutex<Option<PendingTrigger>>> = Arc::new(Mutex::new(None));
 
             let buffer_clone = Arc::clone(&buffer);
             let held_clone   = Arc::clone(&held_keys);
+            let caps_lock_clone = Arc::clone(&caps_lock_on);
             let pending_trigger_clone = Arc::clone(&pending_trigger);
             let config_clone = Arc::clone(&config);
             let db_clone     = Arc::clone(&db);
@@ -301,6 +313,12 @@ pub fn start(
                             if !held.contains(&modifier.to_string()) {
                                 held.push(modifier.to_string());
                             }
+                            return;
+                        }
+
+                        if matches!(key, RKey::CapsLock) {
+                            let mut caps_lock = caps_lock_clone.lock().unwrap();
+                            *caps_lock = !*caps_lock;
                             return;
                         }
 
@@ -341,10 +359,17 @@ pub fn start(
                         }
 
                         // Buffer update and trigger match
+                        let shift_active = {
+                            let held = held_clone.lock().unwrap();
+                            held.contains(&"Shift".to_string())
+                        };
+                        let caps_lock_on = *caps_lock_clone.lock().unwrap();
                         let matched = update_buffer_and_match_trigger(
                             key,
                             &snap,
                             &buffer_clone,
+                            shift_active,
+                            caps_lock_on,
                             &log_clone,
                         );
 
