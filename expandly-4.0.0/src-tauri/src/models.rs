@@ -14,6 +14,8 @@ pub struct Trigger {
     pub key: String,
     pub expansion_id: String,
     pub word_boundary: bool,
+    #[serde(default)]
+    pub case_sensitive: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,9 +166,9 @@ impl Default for RootConfig {
             theme:                  "starry-blue".to_string(),
             expansions,
             triggers: vec![
-                Trigger { id: trigger1_id, key: "/hello".to_string(), expansion_id: exp1_id, word_boundary: true },
-                Trigger { id: trigger2_id, key: "/time".to_string(),  expansion_id: exp2_id, word_boundary: true },
-                Trigger { id: trigger3_id, key: "/help".to_string(),  expansion_id: exp3_id, word_boundary: true },
+                Trigger { id: trigger1_id, key: "/hello".to_string(), expansion_id: exp1_id, word_boundary: true, case_sensitive: false },
+                Trigger { id: trigger2_id, key: "/time".to_string(),  expansion_id: exp2_id, word_boundary: true, case_sensitive: false },
+                Trigger { id: trigger3_id, key: "/help".to_string(),  expansion_id: exp3_id, word_boundary: true, case_sensitive: false },
             ],
             hotkeys:          vec![],
             custom_variables: vec![

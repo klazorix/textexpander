@@ -4,7 +4,7 @@ import { useInvoke } from '../hooks/useInvoke'
 import { useConfig } from '../hooks/useConfig'
 import Modal from '../components/Modal'
 
-const blankForm = { key: '', expansion_id: '', word_boundary: true }
+const blankForm = { key: '', expansion_id: '', word_boundary: true, case_sensitive: false }
 
 function TriggerForm({ form, onChange, snippets, maxKeyLength }) {
   return (
@@ -49,6 +49,19 @@ function TriggerForm({ form, onChange, snippets, maxKeyLength }) {
           <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.word_boundary ? 'left-5' : 'left-0.5'}`} />
         </button>
       </div>
+
+      <div className="flex items-center justify-between bg-gray-800 border border-gray-700 rounded-lg px-4 py-3">
+        <div>
+          <p className="text-sm text-white font-medium">Case Sensitive</p>
+          <p className="text-xs text-gray-500 mt-0.5">Require the trigger text to match exact letter casing</p>
+        </div>
+        <button
+          onClick={() => onChange({ ...form, case_sensitive: !form.case_sensitive })}
+          className={`w-11 h-6 rounded-full transition-colors relative ${form.case_sensitive ? 'bg-blue-600' : 'bg-gray-600'}`}
+        >
+          <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.case_sensitive ? 'left-5' : 'left-0.5'}`} />
+        </button>
+      </div>
     </>
   )
 }
@@ -69,14 +82,25 @@ export default function Triggers() {
   const snippetName = id => snippets.find(s => s.id === id)?.name ?? 'Unknown'
 
   const handleAdd = async () => {
-    await invoke('create_trigger', { key: addForm.key, expansionId: addForm.expansion_id, wordBoundary: addForm.word_boundary })
+    await invoke('create_trigger', {
+      key: addForm.key,
+      expansionId: addForm.expansion_id,
+      wordBoundary: addForm.word_boundary,
+      caseSensitive: addForm.case_sensitive,
+    })
     setShowAdd(false)
     setAddForm(blankForm)
     reload()
   }
 
   const handleEdit = async () => {
-    await invoke('update_trigger', { id: editing.id, key: editForm.key, expansionId: editForm.expansion_id, wordBoundary: editForm.word_boundary })
+    await invoke('update_trigger', {
+      id: editing.id,
+      key: editForm.key,
+      expansionId: editForm.expansion_id,
+      wordBoundary: editForm.word_boundary,
+      caseSensitive: editForm.case_sensitive,
+    })
     setEditing(null)
     reload()
   }
@@ -87,7 +111,12 @@ export default function Triggers() {
   }
 
   const openEdit = (t) => {
-    setEditForm({ key: t.key, expansion_id: t.expansion_id, word_boundary: t.word_boundary })
+    setEditForm({
+      key: t.key,
+      expansion_id: t.expansion_id,
+      word_boundary: t.word_boundary,
+      case_sensitive: t.case_sensitive ?? false,
+    })
     setEditing(t)
   }
 
@@ -126,6 +155,9 @@ export default function Triggers() {
               <span className="text-white text-sm truncate">{snippetName(t.expansion_id)}</span>
               {t.word_boundary && (
                 <span className="text-xs text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full shrink-0">Word Boundary</span>
+              )}
+              {t.case_sensitive && (
+                <span className="text-xs text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full shrink-0">Case Sensitive</span>
               )}
             </div>
             <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">

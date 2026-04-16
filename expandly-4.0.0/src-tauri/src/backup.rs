@@ -11,7 +11,7 @@
 //   "version":   "4.0.0",
 //   "config":    { ...all settings fields... },
 //   "snippets":  [ { id, name, text }, ... ],
-//   "triggers":  [ { id, key, expansion_id, word_boundary }, ... ],
+//   "triggers":  [ { id, key, expansion_id, word_boundary, case_sensitive }, ... ],
 //   "hotkeys":   [ { id, keys, expansion_id }, ... ],
 //   "variables": [ { id, name, value }, ... ],
 //   "stats": {
@@ -97,11 +97,12 @@ pub fn export_to_json(conn: &Connection) -> rusqlite::Result<String> {
         })))?;
 
     // Triggers
-    let triggers = collect_json_rows(conn, "SELECT id, key, expansion_id, word_boundary FROM triggers", |r| Ok(json!({
+    let triggers = collect_json_rows(conn, "SELECT id, key, expansion_id, word_boundary, case_sensitive FROM triggers", |r| Ok(json!({
             "id":            r.get::<_, String>(0)?,
             "key":           r.get::<_, String>(1)?,
             "expansion_id":  r.get::<_, String>(2)?,
             "word_boundary": r.get::<_, i64>(3)? != 0,
+            "case_sensitive": r.get::<_, i64>(4)? != 0,
         })))?;
 
     // Hotkeys
@@ -229,10 +230,11 @@ pub fn import_from_json(conn: &Connection, json: &str) -> Result<(), String> {
         let key = trigger.get("key").and_then(|v| v.as_str()).unwrap_or_default();
         let expansion_id = trigger.get("expansion_id").and_then(|v| v.as_str()).unwrap_or_default();
         let word_boundary = trigger.get("word_boundary").and_then(|v| v.as_bool()).unwrap_or(true);
+        let case_sensitive = trigger.get("case_sensitive").and_then(|v| v.as_bool()).unwrap_or(false);
         if id.is_empty() { return Ok(()); }
         conn.execute(
-            "INSERT OR REPLACE INTO triggers (id, key, expansion_id, word_boundary) VALUES (?1, ?2, ?3, ?4)",
-            params![id, key, expansion_id, word_boundary as i64],
+            "INSERT OR REPLACE INTO triggers (id, key, expansion_id, word_boundary, case_sensitive) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, key, expansion_id, word_boundary as i64, case_sensitive as i64],
         ).map_err(|e| format!("Failed to write trigger: {e}"))?;
         Ok(())
     })?;

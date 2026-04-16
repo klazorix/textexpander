@@ -22,11 +22,18 @@ pub fn create_trigger(
     key: String,
     expansion_id: String,
     word_boundary: bool,
+    case_sensitive: bool,
     state: State<'_, AppState>,
 ) -> Result<Trigger, String> {
     let buffer_size = state.config.lock().map_err(|e| e.to_string())?.buffer_size;
     validate_key_len(&key, buffer_size)?;
-    let trigger = Trigger { id: uuid::Uuid::new_v4().to_string(), key, expansion_id, word_boundary };
+    let trigger = Trigger {
+        id: uuid::Uuid::new_v4().to_string(),
+        key,
+        expansion_id,
+        word_boundary,
+        case_sensitive,
+    };
     let db = state.db.lock().map_err(|e| e.to_string())?;
     save_trigger(&db, &trigger)?;
     drop(db);
@@ -41,6 +48,7 @@ pub fn update_trigger(
     key: String,
     expansion_id: String,
     word_boundary: bool,
+    case_sensitive: bool,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let trigger = {
@@ -54,6 +62,7 @@ pub fn update_trigger(
         trigger.key = key;
         trigger.expansion_id = expansion_id;
         trigger.word_boundary = word_boundary;
+        trigger.case_sensitive = case_sensitive;
         trigger.clone()
     };
     let db = state.db.lock().map_err(|e| e.to_string())?;

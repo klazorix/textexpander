@@ -149,6 +149,9 @@ fn handle_hotkey(
     if held.is_empty() {
         return false;
     }
+    let has_non_shift_modifier = held
+        .iter()
+        .any(|modifier| matches!(modifier.as_str(), "Control" | "Alt" | "Super"));
     if let Some(key_name) = rkey_to_name(&key) {
         let mut parts = held.clone();
         parts.push(key_name);
@@ -180,8 +183,9 @@ fn handle_hotkey(
                 ));
             }
         }
+        return has_non_shift_modifier;
     }
-    true
+    has_non_shift_modifier
 }
 
 fn track_pending_trigger_space(
@@ -243,7 +247,12 @@ fn update_buffer_and_match_trigger(
     let mut found = None;
 
     'outer: for trigger in &snap.triggers {
-        if !buf_str.to_lowercase().ends_with(&trigger.key.to_lowercase()) {
+        let matches_trigger = if trigger.case_sensitive {
+            buf_str.ends_with(&trigger.key)
+        } else {
+            buf_str.to_lowercase().ends_with(&trigger.key.to_lowercase())
+        };
+        if !matches_trigger {
             continue;
         }
         if trigger.word_boundary {

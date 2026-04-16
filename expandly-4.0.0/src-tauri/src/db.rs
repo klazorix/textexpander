@@ -76,7 +76,8 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
             id              TEXT PRIMARY KEY,
             key             TEXT NOT NULL,
             expansion_id    TEXT NOT NULL,
-            word_boundary   INTEGER NOT NULL DEFAULT 1
+            word_boundary   INTEGER NOT NULL DEFAULT 1,
+            case_sensitive  INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS hotkeys (
@@ -111,6 +112,7 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
 pub fn migrate_schema(conn: &Connection) {
     let _ = conn.execute("ALTER TABLE config ADD COLUMN debug_enabled INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE config ADD COLUMN debug_level TEXT NOT NULL DEFAULT 'errors'", []);
+    let _ = conn.execute("ALTER TABLE triggers ADD COLUMN case_sensitive INTEGER NOT NULL DEFAULT 0", []);
 }
 
 // ── Migration from config.json ────────────────────────────────────────────
@@ -368,32 +370,34 @@ pub fn delete_snippet(conn: &Connection, id: &str) -> rusqlite::Result<()> {
 // ── Triggers ──────────────────────────────────────────────────────────────
 
 fn load_triggers(conn: &Connection) -> rusqlite::Result<Vec<Trigger>> {
-    load_vec(conn, "SELECT id, key, expansion_id, word_boundary FROM triggers", |r| {
+    load_vec(conn, "SELECT id, key, expansion_id, word_boundary, case_sensitive FROM triggers", |r| {
         Ok(Trigger {
-            id:           r.get(0)?,
-            key:          r.get(1)?,
-            expansion_id: r.get(2)?,
+            id:             r.get(0)?,
+            key:            r.get(1)?,
+            expansion_id:   r.get(2)?,
             word_boundary: r.get::<_, i64>(3)? != 0,
+            case_sensitive: r.get::<_, i64>(4)? != 0,
         })
     })
 }
 
 fn insert_trigger(conn: &Connection, t: &Trigger) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO triggers (id, key, expansion_id, word_boundary) VALUES (?1, ?2, ?3, ?4)",
-        params![t.id, t.key, t.expansion_id, t.word_boundary as i64],
+        "INSERT INTO triggers (id, key, expansion_id, word_boundary, case_sensitive) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![t.id, t.key, t.expansion_id, t.word_boundary as i64, t.case_sensitive as i64],
     )?;
     Ok(())
 }
 
 pub fn save_trigger(conn: &Connection, t: &Trigger) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO triggers (id, key, expansion_id, word_boundary) VALUES (?1, ?2, ?3, ?4)
+        "INSERT INTO triggers (id, key, expansion_id, word_boundary, case_sensitive) VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(id) DO UPDATE SET
-            key           = excluded.key,
-            expansion_id  = excluded.expansion_id,
-            word_boundary = excluded.word_boundary",
-        params![t.id, t.key, t.expansion_id, t.word_boundary as i64],
+            key            = excluded.key,
+            expansion_id   = excluded.expansion_id,
+            word_boundary  = excluded.word_boundary,
+            case_sensitive = excluded.case_sensitive",
+        params![t.id, t.key, t.expansion_id, t.word_boundary as i64, t.case_sensitive as i64],
     )?;
     Ok(())
 }
